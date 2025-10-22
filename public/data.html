@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Session Data Dashboard - AI(ttention)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="/supabase-config.js"></script>
+    <script src="/js/admin-signout.js" defer></script>
+    <script src="/js/navbar.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .gradient-bg { background: linear-gradient(135deg, #a7f3d0 0%, #bae6fd 100%); }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen text-black">
+    <!-- Global App Navbar -->
+    <div id="app-navbar"></div>
+    <script>window.initNavbar && window.initNavbar({ active: 'data' });</script>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        
+        <!-- Filters -->
+        <div class="bg-white rounded-xl shadow-lg border border-gray-200 mb-8 p-6">
+            <div class="flex flex-wrap items-center gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Filter by Mode:</label>
+                    <select id="modeFilter" class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                        <option value="">All Modes</option>
+                        <option value="summary">Summary Mode</option>
+                        <option value="mindmap">Mindmap Mode</option>
+                        <option value="checkbox">Checkbox Mode</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Results per page:</label>
+                    <select id="limitFilter" class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                        <option value="10">10</option>
+                        <option value="20" selected>20</option>
+                        <option value="50">50</option>
+                    </select>
+                </div>
+                <div class="flex items-end">
+                    <button onclick="loadSessions()" class="bg-blue-200 hover:bg-blue-300 text-black px-4 py-2 rounded-lg font-medium transition-colors flex items-center border border-blue-300">
+                        <i data-lucide="refresh-cw" class="w-4 h-4 mr-2"></i>
+                        Refresh Data
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading State -->
+        <div id="loadingState" class="text-center py-16">
+            <div class="animate-spin w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+            <p class="text-gray-600">Loading session data...</p>
+        </div>
+
+        <!-- Sessions Grid -->
+        <div id="sessionsGrid" class="hidden space-y-6">
+            <!-- Sessions will be inserted here -->
+        </div>
+
+        <!-- Pagination -->
+        <div id="pagination" class="hidden mt-8 flex items-center justify-between">
+            <div class="text-sm text-gray-600">
+                <span id="paginationInfo">Showing 1-20 of 50 sessions</span>
+            </div>
+            <div class="flex space-x-2">
+                <button id="prevBtn" onclick="previousPage()" disabled class="px-4 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                    Previous
+                </button>
+                <button id="nextBtn" onclick="nextPage()" class="px-4 py-2 bg-blue-200 text-black rounded-lg hover:bg-blue-300 disabled:opacity-50 disabled:cursor-not-allowed border border-blue-300">
+                    Next
+                </button>
+            </div>
+        </div>
+
+        <!-- Session Detail Modal -->
+        <div id="sessionModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 hidden z-50">
+            <div class="bg-white rounded-xl shadow-2xl max-w-6xl w-full max-h-[90vh] overflow-hidden">
+                <div class="flex items-center justify-between p-6 border-b border-gray-200">
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-900">Session Details</h3>
+                        <p class="text-sm text-gray-600">Session <span id="modalSessionCode">-</span></p>
+                    </div>
+                    <button onclick="closeSessionModal()" class="text-gray-400 hover:text-gray-600 transition-colors">
+                        <i data-lucide="x" class="w-6 h-6"></i>
+                    </button>
+                </div>
+                <div class="p-6 overflow-y-auto max-h-[75vh]">
+                    <div id="modalSessionContent">
+                        <!-- Session details will be inserted here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        let currentOffset = 0;
+        let currentLimit = 20;
+        let totalSessions = 0;
+        let currentMode = '';
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            lucide.createIcons();
+            loadSessions();
+        });
+
+        // Load sessions data
+        async function loadSessions() {
+            try {
+                document.getElementById('loadingState').classList.remove('hidden');
+                document.getElementById('sessionsGrid').classList.add('hidden');
+                document.getElementById('pagination').classList.add('hidden');
+
+                const mode = document.getElementById('modeFilter').value;
+                const limit = document.getElementById('limitFilter').value;
+                
+                currentMode = mode;
+                currentLimit = parseInt(limit);
+
+                const url = new URL('/api/data/sessions', window.location.origin);
+                url.searchParams.append('offset', currentOffset);
+                url.searchParams.append('limit', currentLimit);
+                if (mode) url.searchParams.append('mode', mode);
+
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                console.log('📊 Sessions data loaded:', data);
+
+                totalSessions = data.pagination.total;
+                displaySessions(data.sessions);
+                updatePagination(data.pagination);
+
+                document.getElementById('loadingState').classList.add('hidden');
+                document.getElementById('sessionsGrid').classList.remove('hidden');
+                if (data.sessions.length > 0) {
+                    document.getElementById('pagination').classList.remove('hidden');
+                }
+
+            } catch (err) {
+                console.error('❌ Failed to load sessions:', err);
+                document.getElementById('loadingState').innerHTML = `
+                    <div class="text-center py-16">
+                        <i data-lucide="alert-circle" class="w-12 h-12 text-red-500 mx-auto mb-4"></i>
+                        <p class="text-red-600 font-medium">Failed to load session data</p>
+                        <p class="text-gray-600 text-sm mt-2">${err.message}</p>
+                        <button onclick="loadSessions()" class="mt-4 bg-blue-200 hover:bg-blue-300 text-black px-4 py-2 rounded-lg border border-blue-300">
+                            Try Again
+                        </button>
+                    </div>
+                `;
+                lucide.createIcons();
+            }
+        }
+
+        // Display sessions
+        function displaySessions(sessions) {
+            const grid = document.getElementById('sessionsGrid');
+            
+            if (sessions.length === 0) {
+                grid.innerHTML = `
+                    <div class="text-center py-16">
+                        <i data-lucide="database" class="w-16 h-16 text-gray-400 mx-auto mb-4"></i>
+                        <h3 class="text-lg font-medium text-gray-900 mb-2">No Sessions Found</h3>
+                        <p class="text-gray-600">No sessions match your current filters.</p>
+                    </div>
+                `;
+                lucide.createIcons();
+                return;
+            }
+
+            const sessionsHtml = sessions.map(session => {
+                const modeColors = {
+                    summary: 'bg-blue-100 text-blue-800',
+                    mindmap: 'bg-sky-100 text-sky-800',
+                    checkbox: 'bg-green-100 text-green-800'
+                };
+
+                const modeIcons = {
+                    summary: 'message-square',
+                    mindmap: 'brain-circuit',
+                    checkbox: 'check-square'
+                };
+
+                return `
+                    <div class="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden hover:shadow-xl transition-shadow">
+                        <div class="p-6">
+                            <div class="flex items-start justify-between mb-4">
+                                <div class="flex items-center space-x-3">
+                                    <div class="w-10 h-10 ${modeColors[session.mode] || 'bg-gray-100 text-gray-800'} rounded-lg flex items-center justify-center">
+                                        <i data-lucide="${modeIcons[session.mode] || 'database'}" class="w-5 h-5"></i>
+                                    </div>
+                                    <div>
+                                        <h3 class="text-lg font-semibold text-gray-900">Session ${session.code}</h3>
+                                        <div class="flex items-center space-x-4 text-sm text-gray-600 mt-1">
+                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${modeColors[session.mode] || 'bg-gray-100 text-gray-800'}">
+                                                ${session.mode ? session.mode.charAt(0).toUpperCase() + session.mode.slice(1) : 'Unknown'} Mode
+                                            </span>
+                                            <span>${new Date(session.created_at).toLocaleDateString()}</span>
+                                            <span>${session.duration ? formatDuration(session.duration) : (session.active ? 'Active' : 'Unknown')}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <button onclick="viewSessionDetails('${session.code}')" class="text-blue-600 hover:text-blue-800 font-medium text-sm">
+                                    View Details →
+                                </button>
+                            </div>
+
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                                <div class="text-center">
+                                    <div class="text-2xl font-bold text-gray-900">${session.groups.length}</div>
+                                    <div class="text-xs text-gray-600">Groups</div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="text-2xl font-bold text-gray-900">${session.totalTranscripts}</div>
+                                    <div class="text-xs text-gray-600">Transcripts</div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="text-2xl font-bold text-gray-900">${session.totalStudents}</div>
+                                    <div class="text-xs text-gray-600">Participants</div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="text-2xl font-bold ${session.active ? 'text-green-600' : 'text-gray-900'}">${session.active ? 'Live' : 'Complete'}</div>
+                                    <div class="text-xs text-gray-600">Status</div>
+                                </div>
+                            </div>
+
+                            ${session.modeSpecificData ? renderModeSpecificPreview(session.mode, session.modeSpecificData) : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            grid.innerHTML = sessionsHtml;
+            lucide.createIcons();
+        }
+
+        // Render mode-specific preview
+        function renderModeSpecificPreview(mode, data) {
+            switch (mode) {
+                case 'mindmap':
+                    return `
+                        <div class="border-t border-gray-100 pt-4">
+                            <div class="text-sm text-gray-600">
+                                <strong>Topic:</strong> ${data.mainTopic || 'Not specified'}
+                            </div>
+                            <div class="text-sm text-gray-600 mt-1">
+                                <strong>Nodes:</strong> ${data.nodeCount || 0} nodes generated
+                            </div>
+                        </div>
+                    `;
+                case 'checkbox':
+                    return `
+                        <div class="border-t border-gray-100 pt-4">
+                            <div class="flex items-center justify-between text-sm">
+                                <span class="text-gray-600">
+                                    <strong>Progress:</strong> ${data.completedCriteria}/${data.totalCriteria} criteria completed
+                                </span>
+                                <div class="w-24 bg-gray-200 rounded-full h-2">
+                                    <div class="bg-green-500 h-2 rounded-full" style="width: ${data.completionRate}%"></div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                default:
+                    return '';
+            }
+        }
+
+        // View session details
+        async function viewSessionDetails(sessionCode) {
+            try {
+                console.log('📋 Loading details for session:', sessionCode);
+                
+                const response = await fetch(`/api/data/session/${sessionCode}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                console.log('📋 Session details loaded:', data);
+
+                document.getElementById('modalSessionCode').textContent = sessionCode;
+                document.getElementById('modalSessionContent').innerHTML = renderSessionDetails(data);
+                document.getElementById('sessionModal').classList.remove('hidden');
+                
+                lucide.createIcons();
+
+            } catch (err) {
+                console.error('❌ Failed to load session details:', err);
+                alert(`Failed to load session details: ${err.message}`);
+            }
+        }
+
+        // Render session details
+        function renderSessionDetails(data) {
+            const { session, groups, modeSpecificData, stats } = data;
+            
+            let html = `
+                <div class="space-y-6">
+                    <!-- Session Overview -->
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <h4 class="font-semibold text-gray-900 mb-3">Session Overview</h4>
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                            <div><strong>Code:</strong> ${session.code}</div>
+                            <div><strong>Mode:</strong> ${session.mode}</div>
+                            <div><strong>Duration:</strong> ${stats.durationFormatted}</div>
+                            <div><strong>Status:</strong> ${session.active ? 'Active' : 'Completed'}</div>
+                        </div>
+                    </div>
+            `;
+
+            // Mode-specific data
+            if (modeSpecificData) {
+                if (session.mode === 'checkbox') {
+                    html += `
+                        <div class="bg-green-50 rounded-lg p-4">
+                            <h4 class="font-semibold text-gray-900 mb-3">Checkbox Progress</h4>
+                            ${modeSpecificData.checkboxSession?.scenario ? `
+                                <div class="mb-4">
+                                    <strong>Scenario:</strong>
+                                    <p class="text-sm text-gray-700 mt-1">${modeSpecificData.checkboxSession.scenario}</p>
+                                </div>
+                            ` : ''}
+                            <div class="space-y-2">
+                                ${modeSpecificData.criteria.map((criterion, index) => `
+                                    <div class="flex items-start space-x-3 p-2 rounded border ${criterion.completed ? 'bg-green-100 border-green-200' : 'bg-white border-gray-200'}">
+                                        <div class="w-5 h-5 rounded border-2 flex items-center justify-center mt-0.5 ${criterion.completed ? 'bg-green-500 border-green-500' : 'border-gray-300'}">
+                                            ${criterion.completed ? '<i data-lucide="check" class="w-3 h-3 text-white"></i>' : ''}
+                                        </div>
+                                        <div class="flex-1">
+                                            <p class="text-sm font-medium text-gray-900">${criterion.description}</p>
+                                            ${criterion.completed && criterion.quote ? `
+                                                <div class="text-xs text-green-700 bg-green-50 rounded px-2 py-1 mt-1">
+                                                    <strong>Quote:</strong> "${criterion.quote}"
+                                                </div>
+                                            ` : ''}
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `;
+                } else if (session.mode === 'mindmap') {
+                    html += `
+                        <div class="bg-sky-50 rounded-lg p-4">
+                            <h4 class="font-semibold text-gray-900 mb-3">Mindmap Data</h4>
+                            <div class="text-sm">
+                                <p><strong>Main Topic:</strong> ${modeSpecificData.mindmapSession?.main_topic || 'Not specified'}</p>
+                                <p><strong>Nodes Generated:</strong> ${modeSpecificData.mindmapArchive?.node_count || 0}</p>
+                                <p><strong>Chat Messages:</strong> ${modeSpecificData.mindmapSession?.chat_history?.length || 0}</p>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+
+            // Groups and transcripts
+            html += `
+                <div>
+                    <h4 class="font-semibold text-gray-900 mb-3">Groups & Transcripts</h4>
+                    <div class="space-y-4">
+                        ${groups.map(group => `
+                            <div class="border border-gray-200 rounded-lg p-4">
+                                <div class="flex items-center justify-between mb-3">
+                                    <h5 class="font-medium text-gray-900">Group ${group.number}</h5>
+                                    <span class="text-sm text-gray-600">${group.transcripts.length} transcripts</span>
+                                </div>
+                                ${group.summary?.content ? `
+                                    <div class="bg-blue-50 rounded p-3 mb-3">
+                                        <strong class="text-sm">Summary:</strong>
+                                        <p class="text-sm text-gray-700 mt-1">${group.summary.content}</p>
+                                    </div>
+                                ` : ''}
+                                <div class="space-y-2 max-h-60 overflow-y-auto">
+                                    ${group.transcripts.map((transcript, index) => `
+                                        <div class="text-sm bg-gray-50 rounded p-2">
+                                            <div class="flex justify-between items-center mb-1">
+                                                <span class="font-medium">Segment ${index + 1}</span>
+                                                <span class="text-xs text-gray-500">${new Date(transcript.created_at).toLocaleTimeString()}</span>
+                                            </div>
+                                            <p class="text-gray-700">${transcript.text}</p>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            </div>`;
+
+            return html;
+        }
+
+        // Format duration
+        function formatDuration(ms) {
+            const seconds = Math.floor(ms / 1000);
+            const minutes = Math.floor(seconds / 60);
+            const hours = Math.floor(minutes / 60);
+            
+            if (hours > 0) {
+                return `${hours}h ${minutes % 60}m`;
+            } else if (minutes > 0) {
+                return `${minutes}m ${seconds % 60}s`;
+            } else {
+                return `${seconds}s`;
+            }
+        }
+
+        // Pagination
+        function updatePagination(pagination) {
+            const info = document.getElementById('paginationInfo');
+            const prevBtn = document.getElementById('prevBtn');
+            const nextBtn = document.getElementById('nextBtn');
+
+            const start = pagination.offset + 1;
+            const end = Math.min(pagination.offset + pagination.limit, pagination.total);
+            
+            info.textContent = `Showing ${start}-${end} of ${pagination.total} sessions`;
+            
+            prevBtn.disabled = pagination.offset === 0;
+            nextBtn.disabled = !pagination.hasMore;
+        }
+
+        function previousPage() {
+            if (currentOffset > 0) {
+                currentOffset = Math.max(0, currentOffset - currentLimit);
+                loadSessions();
+            }
+        }
+
+        function nextPage() {
+            if (currentOffset + currentLimit < totalSessions) {
+                currentOffset += currentLimit;
+                loadSessions();
+            }
+        }
+
+        // Close modal
+        function closeSessionModal() {
+            document.getElementById('sessionModal').classList.add('hidden');
+        }
+
+        // Filter changes
+        document.getElementById('modeFilter').addEventListener('change', () => {
+            currentOffset = 0;
+            loadSessions();
+        });
+
+        document.getElementById('limitFilter').addEventListener('change', () => {
+            currentOffset = 0;
+            loadSessions();
+        });
+
+        // Close modal on outside click
+        document.getElementById('sessionModal').addEventListener('click', (e) => {
+            if (e.target.id === 'sessionModal') {
+                closeSessionModal();
+            }
+        });
+
+        // ESC key to close modal
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && !document.getElementById('sessionModal').classList.contains('hidden')) {
+                closeSessionModal();
+            }
+        });
+    </script>
+</body>
+</html> 

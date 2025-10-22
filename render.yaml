@@ -1,0 +1,34 @@
+services:
+  - type: web
+    name: smart-classroom-v2
+    env: node
+    plan: starter
+    region: oregon
+    buildCommand: npm install
+    startCommand: npm start
+    rootDir: .
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ELEVENLABS_KEY
+        sync: false
+      - key: ANTHROPIC_KEY
+        sync: false  
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+    healthCheckPath: /health
+    autoDeploy: true
+    disk:
+      name: smart-classroom-disk
+      mountPath: /tmp
+      sizeGB: 1
+    # Uncomment for production scaling (requires Standard plan or higher)
+    # scaling:
+    #   minInstances: 1
+    #   maxInstances: 3 

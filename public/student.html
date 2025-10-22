@@ -1,0 +1,1269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student View - AI(ttention)</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    animation: {
+                        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                        'slide-in': 'slideIn 0.3s ease-out',
+                        'ping-slow': 'ping 2s cubic-bezier(0, 0, 0.2, 1) infinite'
+                    }
+                }
+            }
+        }
+    </script>
+  <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .gradient-bg { background: linear-gradient(135deg, #a7f3d0 0%, #bae6fd 100%); }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .new-transcript { animation: slideIn 0.3s ease-out; }
+        .connection-indicator { transition: all 0.3s ease; }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen text-black">
+    <!-- Join Form -->
+    <div id="joinForm" class="min-h-screen flex items-center justify-center bg-gradient-to-br from-sky-50 to-emerald-50 px-4">
+        <div class="max-w-md w-full">
+            <div class="text-center mb-8">
+                <div class="w-20 h-20 mx-auto bg-gradient-to-br from-sky-200 to-emerald-200 rounded-full flex items-center justify-center mb-4 backdrop-blur-sm border border-slate-200">
+                    <i data-lucide="graduation-cap" class="w-10 h-10 text-slate-700"></i>
+                </div>
+                <h1 class="text-3xl font-bold text-gray-900 mb-2">AI(ttention)</h1>
+                <p class="text-gray-600">Join your group session to start learning</p>
+            </div>
+            
+            <div class="bg-white rounded-2xl shadow-xl p-8">
+                <form id="joinSessionForm" class="space-y-6">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Session Code</label>
+                        <input type="text" id="sessionCode" placeholder="Enter 6-digit code" maxlength="6" 
+                               class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-center text-lg font-mono tracking-widest">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Group Number</label>
+                        <input type="number" id="groupNumber" placeholder="Your group number" min="1" max="99"
+                               class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-center text-lg">
+                    </div>
+                    <button type="submit" class="w-full bg-blue-200 text-black py-3 px-6 rounded-lg font-semibold hover:bg-blue-300 transition-all duration-200 transform hover:scale-105 shadow border border-blue-300">
+                        Join Session
+                    </button>
+                </form>
+                <div id="error" class="hidden mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                    <div class="flex">
+                        <svg class="w-5 h-5 text-red-400 mt-0.5 mr-3" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"/>
+                        </svg>
+                        <span id="errorText" class="text-red-800 text-sm"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div id="content" class="hidden min-h-screen flex flex-col">
+        <!-- Header -->
+        <header class="gradient-bg text-black shadow-xl">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center space-x-4">
+                        <div class="w-10 h-10 bg-white rounded-lg flex items-center justify-center backdrop-blur-sm border border-slate-200">
+                            <i data-lucide="graduation-cap" class="w-6 h-6 text-slate-700"></i>
+                        </div>
+                        <div>
+                            <h1 class="text-lg font-semibold flex items-center">
+                                AI(ttention)
+                                <div id="connectionStatus" class="ml-3 flex items-center space-x-2">
+                                    <div id="connectionDot" class="w-2 h-2 bg-green-400 rounded-full animate-ping-slow"></div>
+                                    <span id="connectionText" class="text-xs font-medium text-black">Connected</span>
+                                </div>
+                            </h1>
+                            <p class="text-black/80 text-sm">Session: <span id="activeSession" class="font-mono">-</span> | Group: <span id="activeGroup">-</span> | Elapsed: <span id="timeElapsed">0:00</span></p>
+                        </div>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        <div id="status" class="flex items-center space-x-2 bg-blue-100 text-blue-800 px-4 py-2 rounded-full">
+                            <div class="w-2 h-2 bg-blue-400 rounded-full"></div>
+                            <span id="statusText" class="text-sm font-medium">Waiting...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content Area -->
+        <main class="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full">
+                <!-- Live Transcription Panel -->
+                <div class="bg-white rounded-xl shadow-lg border border-gray-200 flex flex-col">
+                    <div class="p-6 border-b border-gray-100">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center space-x-3">
+                                <div class="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                                    <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
+                                    </svg>
+                                </div>
+                                <h2 class="text-lg font-semibold text-gray-900">Live Transcription</h2>
+                            </div>
+                            <button 
+                                id="toggleTranscripts"
+                                onclick="toggleTranscriptHistory()"
+                                class="flex items-center text-gray-600 hover:text-gray-900 text-sm transition-colors duration-200"
+                            >
+                                <svg id="toggleIcon" class="w-4 h-4 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                                </svg>
+                                <span class="ml-2" id="toggleText">Show History</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="transcriptionArea" class="flex-1 p-6 overflow-y-auto min-h-96">
+                        <!-- Most recent transcript will be shown by default -->
+                        <div id="latestTranscript" class="mb-4">
+                            <div class="text-center py-12 text-gray-500">
+                                <svg class="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                                </svg>
+                                <p class="text-lg font-medium mb-2">No transcription yet</p>
+                                <p class="text-sm">Audio will be transcribed here when recording starts</p>
+                            </div>
+                        </div>
+                        <!-- Transcript history (initially hidden) -->
+                        <div id="transcriptHistory" class="hidden space-y-4">
+                            <div class="border-t pt-4">
+                                <h3 class="text-sm font-medium text-gray-700 mb-3">Previous Transcripts</h3>
+                                <div id="olderTranscripts" class="space-y-3">
+                                    <!-- Older transcripts will be added here -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Discussion Summary Panel -->
+                <div id="summaryPanel" class="bg-white rounded-xl shadow-lg border border-gray-200 flex flex-col">
+                    <div class="p-6 border-b border-gray-100">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center space-x-3">
+                                <div class="w-8 h-8 bg-sky-100 rounded-lg flex items-center justify-center">
+                                    <svg class="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                                    </svg>
+                                </div>
+                                <h2 class="text-lg font-semibold text-gray-900">Discussion Summary</h2>
+                            </div>
+                            <div id="summaryTimestamp" class="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded hidden">
+                                Updated now
+                            </div>
+                        </div>
+                    </div>
+                    <div id="summaryArea" class="flex-1 p-6 min-h-96">
+                        <div class="text-center py-12 text-gray-500">
+                            <svg class="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
+                            </svg>
+                            <p class="text-lg font-medium mb-2">No summary available</p>
+                            <p class="text-sm">Discussion summary will appear here as you talk</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Discussion Checklist Panel -->
+                <div id="checklistPanel" class="bg-white rounded-xl shadow-lg border border-gray-200 flex flex-col hidden">
+                    <div class="p-6 border-b border-gray-100">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center space-x-3">
+                                <div class="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
+                                    <i data-lucide="check-square" class="w-5 h-5 text-green-600"></i>
+                                </div>
+                                <h2 class="text-lg font-semibold text-gray-900">Discussion Checklist</h2>
+                            </div>
+                            <div id="checklistTimestamp" class="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded hidden">
+                                Released by teacher
+                            </div>
+                        </div>
+                    </div>
+                    <div id="checklistArea" class="flex-1 p-6 overflow-y-auto min-h-96">
+                        <div class="h-full flex flex-col justify-center items-center text-center text-gray-500 py-12">
+                            <i data-lucide="clock" class="w-14 h-14 mb-4 text-gray-300"></i>
+                            <p class="text-lg font-medium mb-2">Waiting for your teacher to release the checklist</p>
+                            <p class="text-sm max-w-sm">Stay tuned — once it’s shared, you’ll see each discussion criterion and your progress here.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+  <script>
+    const socket = io();
+        let mediaRecorder;
+        let stream;
+        let isRecording = false;
+        let recordingInterval;
+        let currentSession = null;
+        let currentGroup = null;
+        let chunkInterval = 30000; // Default, will be updated from admin
+        let recordingTimer;
+        let overlapDuration = 1000; // 1 second overlap to prevent audio loss
+        let isPageVisible = true;
+        let backgroundRecordingSupported = false;
+        let heartbeatInterval = null;
+        let connectionCheckInterval = null;
+        let lastHeartbeatTime = Date.now();
+        let isConnected = true;
+        let hasJoinedSession = false;
+        let elapsedInterval = null;
+        let recordingStart = null;
+        let firstChunkTimerStarted = false;
+        let studentInterfaceMode = 'summary';
+
+        function stopElapsedTimer(resetDisplay = true) {
+            if (elapsedInterval) {
+                clearInterval(elapsedInterval);
+                elapsedInterval = null;
+            }
+            if (resetDisplay) {
+                const elapsedEl = document.getElementById('timeElapsed');
+                if (elapsedEl) elapsedEl.textContent = '0:00';
+            }
+        }
+
+        function startElapsedTimer() {
+            stopElapsedTimer(false);
+            recordingStart = Date.now();
+            const el = document.getElementById('timeElapsed');
+            if (!el) return;
+            elapsedInterval = setInterval(() => {
+                const elapsed = Math.floor((Date.now() - recordingStart) / 1000);
+                const m = Math.floor(elapsed / 60);
+                const s = elapsed % 60;
+                el.textContent = `${m}:${s.toString().padStart(2,'0')}`;
+            }, 1000);
+        }
+
+        function setStudentUIMode(mode) {
+            studentInterfaceMode = mode;
+            const summaryPanelEl = document.getElementById('summaryPanel');
+            const checklistPanelEl = document.getElementById('checklistPanel');
+
+            if (mode === 'checklist') {
+                if (summaryPanelEl) summaryPanelEl.classList.add('hidden');
+                if (checklistPanelEl) {
+                    checklistPanelEl.classList.remove('hidden');
+                    showChecklistPlaceholder();
+                }
+            } else {
+                if (summaryPanelEl) summaryPanelEl.classList.remove('hidden');
+                if (checklistPanelEl) checklistPanelEl.classList.add('hidden');
+                const checklistTimestamp = document.getElementById('checklistTimestamp');
+                if (checklistTimestamp) checklistTimestamp.classList.add('hidden');
+            }
+        }
+
+        function showChecklistPlaceholder() {
+            const checklistArea = document.getElementById('checklistArea');
+            const checklistTimestamp = document.getElementById('checklistTimestamp');
+            if (!checklistArea || !checklistTimestamp) {
+                return;
+            }
+            if (checklistArea) {
+                checklistArea.innerHTML = `
+                    <div class="h-full flex flex-col justify-center items-center text-center text-gray-500 py-12 px-6">
+                        <i data-lucide="clock" class="w-14 h-14 mb-4 text-gray-300"></i>
+                        <p class="text-lg font-medium mb-2">Waiting for your teacher to release the checklist</p>
+                        <p class="text-sm max-w-sm">Once the teacher shares it, each criterion will appear here so you can follow along with the feedback.</p>
+                    </div>
+                `;
+                if (typeof lucide !== 'undefined') {
+                    lucide.createIcons();
+                }
+            }
+            if (checklistTimestamp) {
+                checklistTimestamp.classList.add('hidden');
+            }
+        }
+
+        // Auto join if URL parameters provided
+        const params = new URLSearchParams(window.location.search);
+        const presetCode = params.get('code');
+        const presetGroup = params.get('group');
+        if (presetCode) document.getElementById('sessionCode').value = presetCode;
+        if (presetGroup) document.getElementById('groupNumber').value = presetGroup;
+        if (presetCode && presetGroup) {
+            document.getElementById('joinSessionForm').dispatchEvent(new Event('submit'));
+        }
+
+        function resetView(options = {}) {
+            const { preserveElapsed = false, preserveMode = false } = options;
+            if (!preserveMode) {
+                setStudentUIMode('summary');
+            }
+            document.getElementById('latestTranscript').innerHTML = '';
+            document.getElementById('olderTranscripts').innerHTML = '';
+            summaryArea.innerHTML = '';
+            summaryTimestamp.classList.add('hidden');
+            if (!preserveElapsed) {
+                stopElapsedTimer(true);
+            }
+        }
+        
+        // Initialize Lucide icons
+        document.addEventListener('DOMContentLoaded', () => {
+            lucide.createIcons();
+        });
+        
+        // Connection status management
+        function updateConnectionStatus(connected) {
+            const dot = document.getElementById('connectionDot');
+            const text = document.getElementById('connectionText');
+            
+            if (connected && !isConnected) {
+                // Reconnected
+                dot.className = 'w-2 h-2 bg-green-400 rounded-full animate-ping-slow';
+                text.textContent = 'Connected';
+                text.className = 'text-xs font-medium text-black';
+                isConnected = true;
+                console.log('🟢 Student connected');
+            } else if (!connected && isConnected) {
+                // Disconnected
+                dot.className = 'w-2 h-2 bg-red-400 rounded-full animate-pulse';
+                text.textContent = 'Disconnected';
+                text.className = 'text-xs font-medium text-red-200';
+                isConnected = false;
+                console.log('🔴 Student disconnected');
+            }
+        }
+        
+        // Start heartbeat system
+        function startHeartbeat() {
+            // Send heartbeat every 10 seconds (more robust)
+            heartbeatInterval = setInterval(() => {
+                if (socket.connected && currentSession && currentGroup) {
+                    socket.emit('heartbeat', { session: currentSession, group: currentGroup });
+                    console.log('💓 Student heartbeat sent');
+                }
+            }, 10000);
+            
+            // Check connection status every 3 seconds with tighter threshold
+            connectionCheckInterval = setInterval(() => {
+                const now = Date.now();
+                const timeSinceLastHeartbeat = now - lastHeartbeatTime;
+                
+                // Consider disconnected if no heartbeat response in 20 seconds
+                if (timeSinceLastHeartbeat > 20000) {
+                    updateConnectionStatus(false);
+                } else {
+                    updateConnectionStatus(true);
+                }
+            }, 3000);
+        }
+        
+        // Stop heartbeat system
+        function stopHeartbeat() {
+            if (heartbeatInterval) {
+                clearInterval(heartbeatInterval);
+                heartbeatInterval = null;
+            }
+            if (connectionCheckInterval) {
+                clearInterval(connectionCheckInterval);
+                connectionCheckInterval = null;
+            }
+        }
+
+        // Check if background recording is supported
+        function checkBackgroundSupport() {
+            // Check for Page Visibility API support
+            if (typeof document.hidden !== "undefined" || 
+                typeof document.webkitHidden !== "undefined" || 
+                typeof document.mozHidden !== "undefined") {
+                backgroundRecordingSupported = true;
+                console.log("✅ Background recording supported");
+            } else {
+                console.log("⚠️ Background recording may be limited on this browser");
+            }
+        }
+
+        // Handle page visibility changes
+        function handleVisibilityChange() {
+            const isHidden = document.hidden || document.webkitHidden || document.mozHidden;
+            isPageVisible = !isHidden;
+            
+            if (isPageVisible) {
+                console.log("👁️ Page is now visible");
+                updateStatus(isRecording ? "Recording..." : "Connected", isRecording ? "recording" : "connected");
+            } else {
+                console.log("🫥 Page is now hidden - continuing recording in background");
+                if (isRecording) {
+                    updateStatus("Recording in background...", "recording");
+                }
+            }
+        }
+
+        // Add visibility change listeners
+        function setupBackgroundRecording() {
+            checkBackgroundSupport();
+            
+            // Add event listeners for visibility changes
+            if (typeof document.addEventListener !== "undefined") {
+                document.addEventListener("visibilitychange", handleVisibilityChange);
+            } else if (typeof document.webkitHidden !== "undefined") {
+                document.addEventListener("webkitvisibilitychange", handleVisibilityChange);
+            } else if (typeof document.mozHidden !== "undefined") {
+                document.addEventListener("mozvisibilitychange", handleVisibilityChange);
+            }
+            
+            // Prevent the page from being suspended when hidden
+            if ('wakeLock' in navigator) {
+                // Request a wake lock to keep the page active (when supported)
+                navigator.wakeLock.request('screen').then(wakeLock => {
+                    console.log("🔒 Screen wake lock acquired for background recording");
+                }).catch(err => {
+                    console.log("⚠️ Could not acquire wake lock:", err);
+                });
+            }
+            
+            // Use a heartbeat to keep the connection alive
+            setInterval(() => {
+                if (currentSession && socket.connected) {
+                    socket.emit('heartbeat', { session: currentSession, group: currentGroup });
+                }
+            }, 10000); // DEV: 10s (keepalive)
+
+            // DEV temporary disconnect test removed
+        }
+
+        async function startRecording() {
+            try {
+                console.log("🎙️ Starting recording at", new Date().toISOString());
+
+                stream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    }
+                });
+                
+                isRecording = true;
+                updateStatus(isPageVisible ? "Recording..." : "Recording in background...", "recording");
+
+                // elapsed timer already started by caller; ensure state is set
+                firstChunkTimerStarted = true;
+
+                resetView({ preserveElapsed: true, preserveMode: true });
+
+                // Start the first recording cycle
+                startRecordingCycle();
+                
+            } catch (err) {
+                console.error("❌ Failed to start recording:", err);
+                updateStatus("Failed to start recording", "error");
+            }
+        }
+
+        async function startRecordingCycle() {
+            if (!isRecording || !stream) return;
+            
+            try {
+                console.log(`🎬 Starting new recording cycle (${chunkInterval}ms with ${overlapDuration}ms overlap)${isPageVisible ? '' : ' [BACKGROUND]'}`);
+                
+                // Use proper WebM/Opus format
+                const options = { mimeType: 'audio/webm;codecs=opus' };
+                if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+                    options.mimeType = 'audio/webm';
+                }
+                
+                mediaRecorder = new MediaRecorder(stream, options);
+                
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        const msSinceStart = firstChunkTimerStarted ? (Date.now() - recordingStart) : 'n/a';
+                        console.log(`📦 Received complete chunk: ${event.data.size} bytes after ${msSinceStart}ms${isPageVisible ? '' : ' [BACKGROUND]'}`);
+                        uploadChunk(event.data);
+                    }
+                };
+                
+                // Emit explicit ack when recorder actually starts
+                const session = document.getElementById('activeSession').textContent || currentSession;
+                const group = parseInt(document.getElementById('activeGroup').textContent || currentGroup);
+                setTimeout(() => {
+                    if (socket && socket.connected && session && group && mediaRecorder && mediaRecorder.state === 'recording') {
+                        socket.emit('recording_started', { session, group, interval: chunkInterval });
+                    }
+                }, 200); // small delay to ensure state
+                
+                mediaRecorder.onerror = (event) => {
+                    console.error("❌ MediaRecorder error:", event.error);
+                    updateStatus("Recording error occurred", "error");
+                };
+                
+                mediaRecorder.onstop = () => {
+                    console.log(`⏹️ Recording cycle stopped${isPageVisible ? '' : ' [BACKGROUND]'}`);
+                    
+                    // If still recording, start the next cycle with overlap
+                    if (isRecording) {
+                        if (recordingTimer) {
+                            clearTimeout(recordingTimer);
+                            recordingTimer = null;
+                        }
+                        setTimeout(() => {
+                            startRecordingCycle();
+                        }, 50); // Very brief pause
+                    }
+                };
+                
+                // Start recording (no timeslice) and deliver first chunk at the configured interval
+                mediaRecorder.start();
+                
+                // Stop recording after the specified interval + overlap
+                if (recordingTimer) {
+                    clearTimeout(recordingTimer);
+                }
+                recordingTimer = setTimeout(() => {
+                    if (mediaRecorder && mediaRecorder.state === 'recording') {
+                        console.log(`⏰ Stopping recording after ${chunkInterval + overlapDuration}ms${isPageVisible ? '' : ' [BACKGROUND]'}`);
+                        mediaRecorder.stop();
+                    }
+                }, chunkInterval + overlapDuration);
+                
+            } catch (err) {
+                console.error("❌ Failed to start recording cycle:", err);
+                updateStatus("Recording cycle failed", "error");
+            }
+        }
+
+        async function uploadChunk(blob) {
+            const maxRetries = 3;
+            let retryCount = 0;
+            
+            while (retryCount < maxRetries) {
+                try {
+                    const formData = new FormData();
+                    formData.append('file', blob, `chunk_${Date.now()}.webm`);
+                    formData.append('sessionCode', currentSession);
+                    formData.append('groupNumber', currentGroup);
+                    
+                    console.log(`📤 Uploading chunk (attempt ${retryCount + 1}/${maxRetries}): ${blob.size} bytes, type: ${blob.type}, session: ${currentSession}, group: ${currentGroup}`);
+                    
+                    // Show upload progress
+                    updateStatus(`Uploading audio chunk... (${retryCount + 1}/${maxRetries})`, "processing");
+                    
+                    // Add timeout to prevent hanging uploads
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+                    
+                    const response = await fetch('/api/transcribe-chunk', {
+                        method: 'POST',
+                        body: formData,
+                        signal: controller.signal
+                    });
+                    
+                    clearTimeout(timeoutId);
+                    
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        let errorMessage = `Upload failed: ${response.status}`;
+                        
+                        try {
+                            const errorJson = JSON.parse(errorText);
+                            errorMessage = errorJson.error || errorMessage;
+                        } catch (e) {
+                            // Use status text if JSON parsing fails
+                            errorMessage = `Upload failed: ${response.status} ${response.statusText}`;
+                        }
+                        
+                        throw new Error(errorMessage);
+                    }
+                    
+                    const result = await response.json();
+                    console.log("✅ Chunk uploaded successfully:", result);
+                    
+                    // Update status based on result
+                    if (result.success) {
+                        updateStatus("Upload successful - processing...", "connected");
+                        
+                        // Show processing info if available
+                        if (result.processingTime) {
+                            console.log(`⏱️ Processing time: ${result.processingTime}`);
+                        }
+                    } else {
+                        console.warn("⚠️ Upload completed but marked as unsuccessful:", result);
+                        updateStatus("Upload completed with warnings", "waiting");
+                    }
+                    
+                    // Success - exit retry loop
+                    return;
+                    
+                } catch (err) {
+                    console.error(`❌ Upload attempt ${retryCount + 1} failed:`, err);
+                    retryCount++;
+                    
+                    if (retryCount < maxRetries) {
+                        // Wait before retrying (exponential backoff)
+                        const delay = Math.pow(2, retryCount) * 1000; // 2s, 4s, 8s
+                        console.log(`⏳ Retrying in ${delay/1000} seconds...`);
+                        updateStatus(`Upload failed, retrying in ${delay/1000}s...`, "waiting");
+                        
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                    } else {
+                        // All retries failed
+                        console.error("❌ All upload attempts failed:", err);
+                        updateStatus(`Upload failed: ${err.message}`, "error");
+                        
+                        // Show user-friendly error message
+                        showUploadError(err.message);
+                        
+                        // Emit error to server for admin notification
+                        if (socket.connected) {
+                            socket.emit('upload_error', {
+                                session: currentSession,
+                                group: currentGroup,
+                                error: err.message,
+                                chunkSize: blob.size,
+                                timestamp: Date.now()
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // Show upload error to user
+        function showUploadError(message) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'fixed top-4 right-4 z-50 bg-red-50 border-l-4 border-red-400 p-4 rounded-r-lg shadow-lg max-w-md';
+            errorDiv.innerHTML = `
+                <div class="flex items-center">
+                    <div class="flex-shrink-0">
+                        <svg class="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+                        </svg>
+                    </div>
+                    <div class="ml-3">
+                        <h3 class="text-sm font-medium text-red-800">Upload Error</h3>
+                        <p class="mt-1 text-sm text-red-600">${message}</p>
+                        <p class="mt-1 text-xs text-red-500">The recording will continue. This chunk will be skipped.</p>
+                    </div>
+                    <div class="ml-auto pl-3">
+                        <button onclick="this.parentElement.parentElement.parentElement.remove()" class="text-red-400 hover:text-red-600">
+                            <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(errorDiv);
+            
+            // Auto-remove after 10 seconds
+            setTimeout(() => {
+                if (document.body.contains(errorDiv)) {
+                    document.body.removeChild(errorDiv);
+                }
+            }, 10000);
+        }
+
+        function stopRecording() {
+            if (isRecording) {
+                console.log(`🛑 Stopping recording...${isPageVisible ? '' : ' [BACKGROUND]'}`);
+                isRecording = false;
+                
+                if (recordingTimer) {
+                    clearTimeout(recordingTimer);
+                    recordingTimer = null;
+                }
+                
+                if (mediaRecorder && mediaRecorder.state === 'recording') {
+                    mediaRecorder.stop();
+                }
+
+                stopElapsedTimer(true);
+                
+                if (stream) {
+                    stream.getTracks().forEach(track => track.stop());
+                    stream = null;
+                }
+                
+                updateStatus("Recording stopped", "idle");
+            }
+        }
+
+        // DOM Elements
+        const joinForm = document.getElementById('joinSessionForm');
+        const content = document.getElementById('content');
+        const error = document.getElementById('error');
+        const errorText = document.getElementById('errorText');
+        const status = document.getElementById('status');
+        const transcriptionArea = document.getElementById('transcriptionArea');
+        const summaryArea = document.getElementById('summaryArea');
+        const summaryTimestamp = document.getElementById('summaryTimestamp');
+
+        // Format timestamp
+        function formatTime(seconds) {
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        // Show error message
+        function showError(message) {
+            errorText.textContent = message;
+            error.classList.remove('hidden');
+            setTimeout(() => {
+                error.classList.add('hidden');
+            }, 5000);
+        }
+
+        // Update recording status with better visual feedback
+        function updateStatus(message, type = "idle") {
+            const statusEl = document.getElementById('status');
+            const statusTextEl = document.getElementById('statusText');
+            
+            statusTextEl.textContent = message;
+            
+            // Remove all status classes
+            statusEl.classList.remove('bg-green-100', 'text-green-800', 'bg-yellow-100', 'text-yellow-800', 
+                                     'bg-red-100', 'text-red-800', 'bg-blue-100', 'text-blue-800', 
+                                     'bg-gray-100', 'text-gray-800', 'bg-sky-100', 'text-sky-800',
+                                     'bg-orange-100', 'text-orange-800');
+            
+            // Add appropriate class based on type
+            switch(type) {
+                case "recording":
+                    if (!isPageVisible) {
+                        // Special styling for background recording
+                        statusEl.classList.add('bg-sky-100', 'text-sky-800');
+                        // Add a pulsing effect for background recording
+                        statusEl.style.animation = 'pulse 2s infinite';
+                    } else {
+                        statusEl.classList.add('bg-red-100', 'text-red-800');
+                        statusEl.style.animation = '';
+                    }
+                    break;
+                case "processing":
+                    statusEl.classList.add('bg-orange-100', 'text-orange-800');
+                    statusEl.style.animation = 'pulse 1.5s infinite';
+                    break;
+                case "connected":
+                    statusEl.classList.add('bg-green-100', 'text-green-800');
+                    statusEl.style.animation = '';
+                    break;
+                case "waiting":
+                    statusEl.classList.add('bg-yellow-100', 'text-yellow-800');
+                    statusEl.style.animation = '';
+                    break;
+                case "error":
+                    statusEl.classList.add('bg-red-100', 'text-red-800');
+                    statusEl.style.animation = '';
+                    break;
+                case "disconnected":
+                    statusEl.classList.add('bg-gray-100', 'text-gray-800');
+                    statusEl.style.animation = '';
+                    break;
+                default:
+                    statusEl.classList.add('bg-blue-100', 'text-blue-800');
+                    statusEl.style.animation = '';
+            }
+        }
+
+        function displayTranscription(text, cumulativeText) {
+            const latestTranscript = document.getElementById('latestTranscript');
+            
+            // Clear empty state if present
+            if (latestTranscript.querySelector('.text-center')) {
+                latestTranscript.innerHTML = '';
+            }
+            
+            // Move current latest to history if it exists
+            const currentLatest = latestTranscript.querySelector('.transcript-item');
+            if (currentLatest) {
+                const olderTranscripts = document.getElementById('olderTranscripts');
+                olderTranscripts.insertBefore(currentLatest, olderTranscripts.firstChild);
+                
+                // Keep only last 10 in history
+                while (olderTranscripts.children.length > 10) {
+                    olderTranscripts.removeChild(olderTranscripts.lastChild);
+                }
+            }
+            
+            // Create new latest transcript showing cumulative conversation
+            const transcriptDiv = document.createElement('div');
+            transcriptDiv.className = 'transcript-item new-transcript bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4 border-l-4 border-blue-400 transition-all duration-300';
+            
+            transcriptDiv.innerHTML = `
+                <div class="flex items-center justify-between mb-3">
+                    <span class="text-xs font-medium text-blue-600 bg-blue-100 px-2 py-1 rounded uppercase tracking-wide">Full Conversation</span>
+                    <span class="ml-2 text-xs text-gray-500">${new Date().toLocaleTimeString()}</span>
+                </div>
+                <div class="transcript-content mb-3">
+                    <div class="text-gray-800 leading-relaxed">${cumulativeText || text}</div>
+                </div>
+                <div class="text-xs text-gray-500 border-t pt-2 mt-2">
+                    <span class="font-medium">Latest chunk:</span> "${text}"
+                </div>
+            `;
+            
+            // Add to latest transcript area
+            latestTranscript.appendChild(transcriptDiv);
+            
+            // Remove animation class after animation
+            setTimeout(() => {
+                transcriptDiv.classList.remove('new-transcript');
+            }, 300);
+        }
+
+        function displaySummary(summary) {
+            if (studentInterfaceMode !== 'checklist') {
+                setStudentUIMode('summary');
+            }
+            summaryArea.innerHTML = `
+                <div class="bg-gradient-to-r from-purple-50 to-indigo-50 rounded-lg p-6 border-l-4 border-purple-400 h-full">
+                    <div class="prose prose-purple max-w-none">
+                        <div class="text-gray-800 leading-relaxed whitespace-pre-line">${summary}</div>
+                    </div>
+                </div>
+            `;
+            
+            // Show and update timestamp
+            summaryTimestamp.textContent = `Updated ${new Date().toLocaleTimeString()}`;
+            summaryTimestamp.classList.remove('hidden');
+        }
+
+        // Form submission
+        joinForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            
+            const sessionCode = document.getElementById('sessionCode').value.trim();
+            const groupNumber = document.getElementById('groupNumber').value;
+            
+            if (!sessionCode || !groupNumber) {
+                showError('Please enter both session code and group number');
+                return;
+            }
+            
+            console.log(`🔗 Joining session ${sessionCode}, group ${groupNumber}`);
+            updateStatus("Connecting...", "waiting");
+            
+            // Join the session
+            socket.emit('join', { 
+                code: sessionCode, 
+                group: parseInt(groupNumber) 
+            });
+            
+            // Update UI - hide join form container and show content
+            document.getElementById('activeSession').textContent = sessionCode;
+            document.getElementById('activeGroup').textContent = groupNumber;
+            document.getElementById('joinForm').classList.add('hidden');
+            document.getElementById('content').classList.remove('hidden');
+        });
+
+        // Socket event handlers
+        socket.on('joined', (data) => {
+            console.log('✅ Joined session:', data);
+            console.log('✅ Socket ID:', socket.id);
+            console.log('✅ Socket connected:', socket.connected);
+            currentSession = data.code;
+            currentGroup = data.group;
+            hasJoinedSession = true;
+
+            if (data.mode === 'checkbox') {
+                setStudentUIMode('checklist');
+            } else {
+                setStudentUIMode('summary');
+            }
+            
+            updateStatus(`Joined session ${data.code}, group ${data.group}`, "connected");
+            stopElapsedTimer(true);
+            
+            console.log('🔍 Requesting room info...');
+            socket.emit('get_my_rooms');
+            
+            if (data.status === "recording") {
+                if (typeof data.interval === 'number') {
+                    chunkInterval = data.interval;
+                }
+                startElapsedTimer();
+                startRecording();
+            } else {
+                updateStatus("Waiting for session to start...", "waiting");
+            }
+        });
+
+        socket.on('record_now', (interval) => {
+            console.log(`🎬 record_now received at ${new Date().toISOString()} (interval=${interval}ms)${isPageVisible ? '' : ' [BACKGROUND]'}`);
+            recordingInterval = interval;
+            chunkInterval = interval;
+            startElapsedTimer();
+            startRecording();
+        });
+
+        socket.on('stop_recording', () => {
+            console.log(`🛑 Session stopped recording${isPageVisible ? '' : ' [BACKGROUND]'}`);
+            stopRecording();
+            stopElapsedTimer(true);
+        });
+
+        socket.on('session_reset', () => {
+            console.log('Session reset received');
+            resetView();
+        });
+
+        socket.on('transcription_and_summary', (data) => {
+            console.log(`📝 Received transcription and summary${isPageVisible ? '' : ' [BACKGROUND]'}:`, data);
+            
+            if (data.transcription && data.transcription.text) {
+                displayTranscription(data.transcription.text, data.transcription.cumulativeText);
+            }
+            
+            if (data.summary) {
+                displaySummary(data.summary);
+            }
+        });
+
+        socket.on('error', (message) => {
+            console.error('❌ Socket error:', message);
+            updateStatus(`Error: ${message}`, "error");
+        });
+
+        socket.on('disconnect', () => {
+            console.log(`🔌 Disconnected from server${isPageVisible ? '' : ' [BACKGROUND]'}`);
+            updateStatus("Disconnected from server", "disconnected");
+            updateConnectionStatus(false);
+            stopRecording();
+        });
+
+        socket.on('reconnect', () => {
+            console.log(`🔌 Reconnected to server${isPageVisible ? '' : ' [BACKGROUND]'}`);
+            updateStatus("Reconnected to server", "connected");
+            updateConnectionStatus(true);
+            lastHeartbeatTime = Date.now();
+            
+            // If we were in a session, rejoin
+            if (currentSession && currentGroup) {
+                console.log(`🔄 Rejoining session ${currentSession}, group ${currentGroup}`);
+                socket.emit('join', { 
+                    code: currentSession, 
+                    group: parseInt(currentGroup) 
+                });
+            }
+        });
+
+        /* ===== DEV ONLY: Client hook for server-driven disconnect test =====
+           The server can emit 'dev_simulate_disconnect' (when ALLOW_DEV_TEST is set)
+           to ask the client to disconnect for a short time, then reconnect.
+        */
+        socket.on('dev_simulate_disconnect', ({ durationMs = 5000 } = {}) => {
+            console.warn(`[DEV] Student simulating disconnect for ${durationMs}ms...`);
+            try {
+                socket.disconnect();
+                setTimeout(() => {
+                    console.warn('[DEV] Student reconnecting...');
+                    socket.connect();
+                    if (currentSession && currentGroup) {
+                        socket.emit('join', { code: currentSession, group: parseInt(currentGroup) });
+                    }
+                }, Number(durationMs) || 5000);
+            } catch (e) {
+                console.error('[DEV] Simulated disconnect error:', e);
+            }
+        });
+        /* ===== END DEV ONLY ===== */
+
+        // Handle heartbeat responses (keep connection alive)
+        socket.on('heartbeat_ack', () => {
+            // Just acknowledge the heartbeat - keeps connection alive
+            if (!isPageVisible) {
+                console.log('💓 Heartbeat acknowledged [BACKGROUND]');
+            }
+            lastHeartbeatTime = Date.now(); // Update last heartbeat time on successful ack
+        });
+        
+        // Handle connection events
+        socket.on('connect', () => {
+            console.log('🔌 Student socket connected');
+            updateConnectionStatus(true);
+            lastHeartbeatTime = Date.now();
+        });
+
+        // Handle summary updates
+        socket.on('summary_update', (data) => {
+            console.log('📄 Received summary update:', data);
+            
+            if (data.group == currentGroup) {
+                updateSummary(data.summary, data.timestamp);
+            }
+        });
+
+        // Debug: receive room info
+        socket.on('room_info', (data) => {
+            console.log('🔍 My socket rooms:', data.rooms);
+        });
+        
+        // Handle checklist state updates from server
+        socket.on('checklist_state', (data) => {
+            console.log('📋 Received checklist state:', data);
+            console.log('📋 Is released?', data.isReleased);
+            console.log('📋 Current group:', currentGroup, 'Event group:', data.groupNumber);
+            
+            // Only show if it's for our group
+            if (data.groupNumber == currentGroup) {
+                setStudentUIMode('checklist');
+                if (data.isReleased) {
+                    console.log('✅ Checklist is released - displaying to student');
+                    displayChecklist(data);
+                } else {
+                    console.log('⏳ Checklist not yet released - showing waiting message');
+                    showChecklistPlaceholder();
+                }
+            }
+        });
+        
+        // Keep the old handler for backward compatibility (can be removed later)
+        socket.on('checklist_released', (data) => {
+            console.log('📋 Received checklist release event:', data);
+            console.log('📋 Current session:', currentSession, 'Event session:', data.sessionCode || 'undefined');
+            console.log('📋 Current group:', currentGroup, 'Event group:', data.groupNumber);
+            console.log('📋 Criteria count:', data.criteria?.length || 0);
+            console.log('📋 Socket rooms:', socket.rooms); // Debug socket rooms
+            
+            setStudentUIMode('checklist');
+            
+            if (data.groupNumber == currentGroup) {
+                console.log('✅ Group matches - displaying checklist');
+                displayChecklist(data);
+            } else {
+                console.log('❌ Group mismatch - showing debug info');
+                // Show debug info in checklist area
+                const checklistArea = document.getElementById('checklistArea');
+                if (checklistArea) {
+                    checklistArea.innerHTML = `
+                    <div class="text-center py-12">
+                        <div class="text-red-500 mb-4">
+                            <i data-lucide="alert-circle" class="w-16 h-16 mx-auto mb-4"></i>
+                            <p class="text-lg font-medium mb-2">Group Mismatch</p>
+                            <p class="text-sm">Your group: ${currentGroup}, Checklist for: ${data.groupNumber}</p>
+                            <p class="text-xs text-gray-500 mt-2">Checklist has ${data.criteria?.length || 0} criteria</p>
+                        </div>
+                    </div>
+                `;
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                }
+            }
+        });
+
+        function displayChecklist(data) {
+            console.log('📋 displayChecklist called with data:', data);
+            console.log('📋 Criteria details:', data.criteria);
+            
+            setStudentUIMode('checklist');
+            const checklistArea = document.getElementById('checklistArea');
+            const checklistTimestamp = document.getElementById('checklistTimestamp');
+            
+            // Update timestamp
+            checklistTimestamp.textContent = `Released ${new Date(data.timestamp).toLocaleTimeString()}`;
+            checklistTimestamp.classList.remove('hidden');
+            
+            // Count progress with detailed logging
+            const greenCount = data.criteria.filter(c => {
+                console.log(`Checking criterion ${c.id}: status=${c.status}, completed=${c.completed}`);
+                return c.status === 'green';
+            }).length;
+            const redCount = data.criteria.filter(c => c.status === 'red').length;
+            const greyCount = data.criteria.filter(c => c.status === 'grey').length;
+            const totalCount = data.criteria.length;
+            const completionRate = Math.round((greenCount / totalCount) * 100);
+            
+            console.log(`📋 Progress: ${greenCount} green, ${redCount} red, ${greyCount} grey out of ${totalCount} total`);
+            
+            // Build checklist HTML
+            const checklistHTML = `
+                <div class="mb-6">
+                    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                        <h3 class="font-semibold text-blue-900 mb-2">📊 Your Progress</h3>
+                        <div class="text-sm text-blue-800">
+                            <div class="flex justify-between items-center mb-2">
+                                <span>Completion Rate</span>
+                                <span class="font-semibold">${completionRate}%</span>
+                            </div>
+                            <div class="w-full bg-blue-200 rounded-full h-2 mb-3">
+                                <div class="bg-blue-600 h-2 rounded-full transition-all duration-300" style="width: ${completionRate}%"></div>
+                            </div>
+                            <div class="grid grid-cols-3 gap-2 text-xs">
+                                <div class="text-center">
+                                    <div class="font-semibold text-green-600">${greenCount}</div>
+                                    <div>Correct</div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="font-semibold text-red-600">${redCount}</div>
+                                    <div>Needs Work</div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="font-semibold text-gray-600">${greyCount}</div>
+                                    <div>Not Discussed</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    ${data.scenario ? `
+                        <div class="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4">
+                            <h4 class="font-semibold text-gray-900 mb-2">📝 Scenario</h4>
+                            <p class="text-sm text-gray-700">${data.scenario}</p>
+                        </div>
+                    ` : ''}
+                </div>
+                
+                <div class="space-y-3">
+                    ${data.criteria.map((criterion, index) => {
+                        let bgColor, borderColor, iconColor, textColor, statusIcon, statusText;
+                        
+                        switch(criterion.status) {
+                            case 'green':
+                                bgColor = 'bg-green-50';
+                                borderColor = 'border-green-200';
+                                iconColor = 'text-green-600';
+                                textColor = 'text-green-800';
+                                statusIcon = 'check-circle';
+                                statusText = 'Well done! ✅';
+                                break;
+                            case 'red':
+                                bgColor = 'bg-red-50';
+                                borderColor = 'border-red-200';
+                                iconColor = 'text-red-600';
+                                textColor = 'text-red-800';
+                                statusIcon = 'alert-circle';
+                                statusText = 'Needs improvement ⚠️';
+                                break;
+                            default:
+                                bgColor = 'bg-gray-50';
+                                borderColor = 'border-gray-200';
+                                iconColor = 'text-gray-400';
+                                textColor = 'text-gray-700';
+                                statusIcon = 'circle';
+                                statusText = 'Not discussed yet';
+                        }
+                        
+                        return `
+                            <div class="border rounded-lg p-4 ${bgColor} ${borderColor}">
+                                <div class="flex items-start space-x-3">
+                                    <div class="flex-shrink-0 mt-1">
+                                        <i data-lucide="${statusIcon}" class="w-5 h-5 ${iconColor}"></i>
+                                    </div>
+                                    <div class="flex-1 min-w-0">
+                                        <div class="text-sm font-medium ${textColor} mb-2">
+                                            ${criterion.description}
+                                        </div>
+                                        <div class="text-xs text-gray-600 italic mb-2">
+                                            Expected: ${criterion.rubric}
+                                        </div>
+                                        <div class="text-xs font-medium ${textColor}">
+                                            ${statusText}
+                                        </div>
+                                        ${criterion.quote ? `
+                                            <div class="mt-2 text-xs ${textColor} bg-white bg-opacity-50 rounded px-2 py-1 border-l-2 ${criterion.status === 'green' ? 'border-green-400' : 'border-red-400'}">
+                                                💬 "${criterion.quote}"
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+                
+                <div class="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <div class="flex items-start space-x-2">
+                        <i data-lucide="lightbulb" class="w-5 h-5 text-yellow-600 mt-0.5"></i>
+                        <div class="text-sm text-yellow-800">
+                            <div class="font-semibold mb-1">💡 Next Steps:</div>
+                            ${greyCount > 0 ? `<div>• Discuss the ${greyCount} remaining topic(s)</div>` : ''}
+                            ${redCount > 0 ? `<div>• Improve your understanding of ${redCount} topic(s) marked as needing work</div>` : ''}
+                            ${greenCount === totalCount ? `<div>🎉 Great job! You've covered all topics correctly!</div>` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            checklistArea.innerHTML = checklistHTML;
+            
+            // Re-initialize Lucide icons
+            if (typeof lucide !== 'undefined') {
+                lucide.createIcons();
+            }
+            
+            console.log('✅ Checklist displayed to student');
+        }
+
+        // Clean up on page unload
+        window.addEventListener('beforeunload', () => {
+            if (isRecording) {
+                stopRecording();
+            }
+            stopHeartbeat(); // Stop heartbeat on page unload
+        });
+        
+        // Quit confirmation handlers
+        
+        // Prevent accidental page closure when in session
+        window.addEventListener('beforeunload', (e) => {
+            if (hasJoinedSession) {
+                const message = 'Are you sure you want to leave the session? You will need to rejoin with the same session code and group number.';
+                e.preventDefault();
+                e.returnValue = message;
+                return message;
+            }
+        });
+        
+        // Auto-focus session code input
+        document.getElementById('sessionCode').focus();
+        
+        // Initialize background recording support
+        setupBackgroundRecording();
+        startHeartbeat(); // Start heartbeat on page load
+
+        // Handle Enter key in inputs
+        document.getElementById('sessionCode').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                document.getElementById('groupNumber').focus();
+            }
+        });
+
+        document.getElementById('groupNumber').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                document.getElementById('joinSessionForm').dispatchEvent(new Event('submit'));
+            }
+        });
+
+        function toggleTranscriptHistory() {
+            const transcriptHistory = document.getElementById('transcriptHistory');
+            const toggleIcon = document.getElementById('toggleIcon');
+            const toggleText = document.getElementById('toggleText');
+
+            if (transcriptHistory.classList.contains('hidden')) {
+                transcriptHistory.classList.remove('hidden');
+                toggleIcon.classList.remove('rotate-180');
+                toggleText.textContent = 'Hide History';
+            } else {
+                transcriptHistory.classList.add('hidden');
+                toggleIcon.classList.add('rotate-180');
+                toggleText.textContent = 'Show History';
+            }
+        }
+  </script>
+</body>
+</html>

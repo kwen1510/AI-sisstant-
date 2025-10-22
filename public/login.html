@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Admin Login</title>
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: { sans: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"] },
+            boxShadow: {
+              'glow': '0 10px 30px rgba(16, 185, 129, 0.25), 0 6px 12px rgba(14, 165, 233, 0.18)'
+            }
+          }
+        }
+      }
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="/supabase-config.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet">
+    <style>
+      .gradient-bg { background: linear-gradient(135deg, #a7f3d0 0%, #bae6fd 100%); }
+      .brand-title { font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 700; font-size: 1.8rem; letter-spacing: -0.02em; }
+      .brand-mini { position: fixed; top: 12px; left: 16px; font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 700; font-size: 0.9rem; color: #0f172a; opacity: 0.9; }
+    </style>
+  </head>
+  <body class="min-h-screen text-black font-sans relative">
+    <!-- No navbar on login (intentional) -->
+    <!-- Background: layered radial gradients + subtle grid -->
+    <div class="absolute inset-0 -z-10 overflow-hidden">
+      <div class="absolute -top-24 -left-24 w-[36rem] h-[36rem] rounded-full bg-emerald-200 blur-3xl opacity-60"></div>
+      <div class="absolute -bottom-32 -right-16 w-[32rem] h-[32rem] rounded-full bg-sky-200 blur-3xl opacity-70"></div>
+      <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(255,255,255,0.75),_transparent_60%),radial-gradient(ellipse_at_bottom,_rgba(255,255,255,0.6),_transparent_60%)]"></div>
+    </div>
+
+    <div class="brand-mini">AI(ttention)</div>
+
+    <div class="mx-auto max-w-lg px-4 sm:px-6 lg:px-8 pt-20 pb-16">
+      <div class="text-center mb-8">
+        <h1 class="text-3xl sm:text-4xl font-semibold tracking-tight">Teacher Sign In</h1>
+      </div>
+
+      <!-- Glass card -->
+      <div class="relative rounded-2xl border border-white/50 bg-white/70 backdrop-blur-xl shadow-glow p-6 sm:p-8">
+        <div class="absolute -inset-px rounded-2xl pointer-events-none shadow-[inset_0_1px_0_rgba(255,255,255,0.6)]"></div>
+
+        <label for="email" class="block text-sm font-medium text-slate-800 mb-2">Email</label>
+        <input id="email" type="email" placeholder="username@ri.edu.sg" autocomplete="email"
+               class="w-full rounded-lg border border-slate-300/80 bg-white/80 backdrop-blur px-4 py-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:border-emerald-300" />
+
+        <button id="sendCodeBtn"
+                class="w-full mt-4 inline-flex items-center justify-center rounded-lg bg-gradient-to-r from-emerald-300 to-sky-300 px-4 py-3 text-black font-semibold shadow-glow hover:from-emerald-200 hover:to-sky-200 focus:outline-none focus:ring-2 focus:ring-emerald-300">
+          Send OTP
+        </button>
+
+        <button id="resendBtn" disabled
+                class="w-full mt-2 inline-flex items-center justify-center rounded-lg bg-white/70 px-4 py-2 text-slate-900 font-medium hover:bg-white focus:outline-none focus:ring-2 focus:ring-slate-300 border border-white/60 hidden">
+          Resend in 30s
+        </button>
+
+        <div id="otpSection" class="hidden mt-6">
+          <label for="otp" class="block text-sm font-medium text-slate-800 mb-2">Enter OTP Code</label>
+          <input id="otp" inputmode="numeric" autocomplete="one-time-code" placeholder="6-digit code"
+                 class="w-full rounded-lg border border-slate-300/80 bg-white/80 backdrop-blur px-4 py-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:border-emerald-300" />
+          <button id="verifyBtn"
+                  class="w-full mt-4 inline-flex items-center justify-center rounded-lg bg-gradient-to-r from-emerald-300 to-sky-300 px-4 py-3 text-black font-semibold shadow-glow hover:from-emerald-200 hover:to-sky-200 focus:outline-none focus:ring-2 focus:ring-emerald-300">
+            Verify & Sign In
+          </button>
+        </div>
+
+        <button id="signOutBtn" class="w-full mt-4 hidden inline-flex items-center justify-center rounded-lg bg-white/70 px-4 py-2 text-slate-900 font-medium hover:bg-white focus:outline-none focus:ring-2 focus:ring-slate-300 border border-white/60">Sign Out</button>
+
+        <div id="msg" aria-live="polite" class="text-sm text-slate-700 mt-4"></div>
+        <div id="error" aria-live="assertive" class="text-sm text-rose-700 mt-2"></div>
+        <div id="ok" aria-live="polite" class="text-sm text-emerald-700 mt-2"></div>
+      </div>
+
+    </div>
+
+    <script src="/js/admin-auth.js"></script>
+  </body>
+  </html>
