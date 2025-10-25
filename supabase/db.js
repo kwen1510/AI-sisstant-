@@ -49,8 +49,8 @@ const COLLECTION_META = {
   },
   checkbox_progress: {
     primaryKey: 'id',
-    upsertOn: 'session_id,criteria_id,group_number',
-    timestampFields: ['created_at', 'updated_at', 'completed_at']
+    upsertOn: 'session_id,group_number',
+    timestampFields: ['created_at', 'updated_at']
   },
   checkbox_results: {
     primaryKey: 'id',

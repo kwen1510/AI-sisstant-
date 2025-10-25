@@ -142,16 +142,12 @@ create index if not exists checkbox_criteria_session_idx on public.checkbox_crit
 create table if not exists public.checkbox_progress (
   id uuid primary key default gen_random_uuid(),
   session_id uuid not null references public.sessions(id) on delete cascade,
-  criteria_id uuid not null references public.checkbox_criteria(id) on delete cascade,
   group_number integer not null,
-  status text not null default 'grey',
-  completed boolean not null default false,
-  quote text,
+  progress jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  completed_at timestamptz
+  updated_at timestamptz not null default now()
 );
-create unique index if not exists checkbox_progress_unique on public.checkbox_progress(session_id, criteria_id, group_number);
+create unique index if not exists checkbox_progress_unique on public.checkbox_progress(session_id, group_number);
 create index if not exists checkbox_progress_session_idx on public.checkbox_progress(session_id, group_number);
 
 create table if not exists public.prompt_library (

@@ -6,6 +6,8 @@
     <title>Session Data Dashboard - AI(ttention)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <link rel="stylesheet" href="/styles/theme.css">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="/supabase-config.js"></script>
     <script src="/js/admin-signout.js" defer></script>
@@ -14,18 +16,31 @@
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
         body { font-family: 'Inter', sans-serif; }
         .gradient-bg { background: linear-gradient(135deg, #a7f3d0 0%, #bae6fd 100%); }
+        .mindmap-preview {
+            height: 360px;
+            border-radius: 18px;
+            border: 1px solid rgba(255, 255, 255, 0.65);
+            background: rgba(255, 255, 255, 0.85);
+            box-shadow: inset 0 1px 2px rgba(148, 163, 184, 0.18);
+            overflow: hidden;
+            position: relative;
+        }
+        .mindmap-preview svg {
+            width: 100%;
+            height: 100%;
+        }
     </style>
 </head>
-<body class="bg-gray-50 min-h-screen text-black">
+<body>
     <!-- Global App Navbar -->
     <div id="app-navbar"></div>
     <script>window.initNavbar && window.initNavbar({ active: 'data' });</script>
 
     <!-- Main Content -->
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <main class="page-shell stack">
         
         <!-- Filters -->
-        <div class="bg-white rounded-xl shadow-lg border border-gray-200 mb-8 p-6">
+        <div class="surface surface--padded surface--static stack" style="gap:1.25rem;">
             <div class="flex flex-wrap items-center gap-4">
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Filter by Mode:</label>
@@ -45,7 +60,7 @@
                     </select>
                 </div>
                 <div class="flex items-end">
-                    <button onclick="loadSessions()" class="bg-blue-200 hover:bg-blue-300 text-black px-4 py-2 rounded-lg font-medium transition-colors flex items-center border border-blue-300">
+                    <button onclick="loadSessions()" class="btn btn-primary glow">
                         <i data-lucide="refresh-cw" class="w-4 h-4 mr-2"></i>
                         Refresh Data
                     </button>
@@ -70,10 +85,10 @@
                 <span id="paginationInfo">Showing 1-20 of 50 sessions</span>
             </div>
             <div class="flex space-x-2">
-                <button id="prevBtn" onclick="previousPage()" disabled class="px-4 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                <button id="prevBtn" onclick="previousPage()" disabled class="btn btn-muted disabled:opacity-60 disabled:cursor-not-allowed">
                     Previous
                 </button>
-                <button id="nextBtn" onclick="nextPage()" class="px-4 py-2 bg-blue-200 text-black rounded-lg hover:bg-blue-300 disabled:opacity-50 disabled:cursor-not-allowed border border-blue-300">
+                <button id="nextBtn" onclick="nextPage()" class="btn btn-primary disabled:opacity-60 disabled:cursor-not-allowed">
                     Next
                 </button>
             </div>
@@ -156,7 +171,7 @@
                         <i data-lucide="alert-circle" class="w-12 h-12 text-red-500 mx-auto mb-4"></i>
                         <p class="text-red-600 font-medium">Failed to load session data</p>
                         <p class="text-gray-600 text-sm mt-2">${err.message}</p>
-                        <button onclick="loadSessions()" class="mt-4 bg-blue-200 hover:bg-blue-300 text-black px-4 py-2 rounded-lg border border-blue-300">
+                        <button onclick="loadSessions()" class="mt-4 btn btn-primary glow">
                             Try Again
                         </button>
                     </div>
@@ -247,31 +262,231 @@
             lucide.createIcons();
         }
 
+        function escapeHtml(str) {
+            return String(str || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function flattenMindmapNodes(tree, path = [], acc = []) {
+            if (!tree) return acc;
+            if (Array.isArray(tree)) {
+                tree.forEach(child => flattenMindmapNodes(child, path, acc));
+                return acc;
+            }
+            const label = typeof tree.name === 'string' && tree.name.trim().length > 0
+                ? tree.name.trim()
+                : 'Untitled node';
+            const currentPath = [...path, label];
+            acc.push({ label, path: currentPath, key: currentPath.join(' → '), node: tree });
+            const children = Array.isArray(tree.children) ? tree.children : [];
+            children.forEach(child => flattenMindmapNodes(child, currentPath, acc));
+            return acc;
+        }
+
+        function countMindmapNodesClient(tree) {
+            return flattenMindmapNodes(tree).length;
+        }
+
+        function mindmapPreviewSnippet(tree, limit = 4) {
+            const nodes = flattenMindmapNodes(tree);
+            if (!nodes.length) return 'No mindmap activity captured yet.';
+            const sample = nodes.slice(0, limit).map(item => item.key);
+            return `${sample.join('; ')}${nodes.length > limit ? '…' : ''}`;
+        }
+
+        function renderGroupChecklist(group, criteria, progressMap) {
+            const groupEntries = progressMap.get(String(group._id)) || [];
+            const progressByCriteria = new Map(groupEntries.map(entry => [String(entry.criteria_id), entry]));
+            const items = criteria.map((criterion) => {
+                const entry = progressByCriteria.get(String(criterion._id || criterion.id));
+                const completed = !!(entry && entry.completed);
+                const needsWork = entry && entry.status === 'red';
+                const statusLabel = completed ? 'Completed' : needsWork ? 'Needs work' : 'Not discussed';
+                const statusColor = completed ? 'text-emerald-600' : needsWork ? 'text-rose-600' : 'text-slate-500';
+                const quote = entry?.quote ? `<div class="mt-1 text-xs text-slate-600">"${escapeHtml(entry.quote)}"</div>` : '';
+                const rowClass = completed
+                    ? 'bg-emerald-50 border-emerald-200'
+                    : needsWork
+                        ? 'bg-rose-50 border-rose-200'
+                        : 'bg-white border-slate-200';
+                return `
+                    <li class="rounded-lg border ${rowClass} p-2">
+                        <div class="flex items-center justify-between text-sm font-medium text-slate-800">
+                            <span>${escapeHtml(criterion.description || '')}</span>
+                            <span class="${statusColor} text-xs">${statusLabel}</span>
+                        </div>
+                        ${quote}
+                    </li>
+                `;
+            }).join('');
+            if (!items) {
+                return '<p class="text-sm text-slate-600">No checklist criteria available.</p>';
+            }
+            return `
+                <div class="mb-3">
+                    <h6 class="text-sm font-semibold text-slate-900 mb-2">Checklist Progress</h6>
+                    <ul class="space-y-2">${items}</ul>
+                </div>
+            `;
+        }
+
+        function renderMindmapPreview(tree, containerId) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            container.innerHTML = '';
+            if (typeof d3 === 'undefined') {
+                container.innerHTML = '<p class="text-sm text-slate-600 p-4">Mindmap preview unavailable.</p>';
+                return;
+            }
+            if (!tree || typeof tree !== 'object') {
+                container.innerHTML = '<p class="text-sm text-slate-600 p-4">No mindmap data was stored for this session.</p>';
+                return;
+            }
+            const rect = container.getBoundingClientRect();
+            const width = Math.max(rect.width, 320);
+            const height = Math.max(rect.height, 320);
+            const svg = d3.select(container).append('svg')
+                .attr('width', width)
+                .attr('height', height);
+
+            const zoomLayer = svg.append('g');
+            const inner = zoomLayer.append('g').attr('transform', 'translate(60,40)');
+
+            const root = d3.hierarchy(tree);
+            const treeLayout = d3.tree().nodeSize([70, 180]);
+            treeLayout(root);
+            root.descendants().forEach(d => {
+                d.y = d.depth * 180;
+            });
+
+            // initialize per-node offsets for dragging
+            root.descendants().forEach(d => { d._dx = 0; d._dy = 0; });
+
+            const nodeX = d => d.x + (d._dx || 0);
+            const nodeY = d => d.y + (d._dy || 0);
+
+            const linkSel = inner.append('g')
+                .selectAll('path')
+                .data(root.links())
+                .enter()
+                .append('path')
+                .attr('fill', 'none')
+                .attr('stroke', 'rgba(148, 163, 184, 0.55)')
+                .attr('stroke-width', 1.2)
+                .attr('d', link => `M${nodeY(link.source)},${nodeX(link.source)}C${(nodeY(link.source) + nodeY(link.target)) / 2},${nodeX(link.source)} ${(nodeY(link.source) + nodeY(link.target)) / 2},${nodeX(link.target)} ${nodeY(link.target)},${nodeX(link.target)}`);
+
+            const node = inner.append('g')
+                .selectAll('g')
+                .data(root.descendants())
+                .enter()
+                .append('g')
+                .attr('transform', d => `translate(${nodeY(d)},${nodeX(d)})`);
+
+            node.append('circle')
+                .attr('r', d => [18, 14, 12, 10][Math.min(d.depth, 3)])
+                .attr('fill', d => ['#2563eb', '#38bdf8', '#34d399', '#a855f7'][Math.min(d.depth, 3)])
+                .attr('stroke', '#fff')
+                .attr('stroke-width', 2)
+                .attr('opacity', 0.92);
+
+            node.append('text')
+                .attr('dy', 4)
+                .attr('x', d => d.children ? -18 : 18)
+                .attr('text-anchor', d => d.children ? 'end' : 'start')
+                .attr('font-weight', d => d.depth === 0 ? 700 : 500)
+                .attr('font-size', d => d.depth === 0 ? '14px' : '12px')
+                .attr('fill', '#0f172a')
+                .text(d => d.data.name || 'Untitled node');
+
+            const zoom = d3.zoom()
+                .scaleExtent([0.4, 2.5])
+                .on('zoom', event => {
+                    zoomLayer.attr('transform', event.transform);
+                });
+
+            svg.call(zoom);
+
+            // make nodes draggable with link updates
+            const drag = d3.drag()
+                .on('start', function(event, d) {
+                    d._dx = d._dx || 0; d._dy = d._dy || 0;
+                    d3.select(this).classed('dragging', true);
+                })
+                .on('drag', function(event, d) {
+                    d._dy += event.dx; // horizontal
+                    d._dx += event.dy; // vertical
+                    d3.select(this).attr('transform', `translate(${nodeY(d)},${nodeX(d)})`);
+                    linkSel.attr('d', link => `M${nodeY(link.source)},${nodeX(link.source)}C${(nodeY(link.source) + nodeY(link.target)) / 2},${nodeX(link.source)} ${(nodeY(link.source) + nodeY(link.target)) / 2},${nodeX(link.target)} ${nodeY(link.target)},${nodeX(link.target)}`);
+                })
+                .on('end', function() {
+                    d3.select(this).classed('dragging', false);
+                });
+
+            node.call(drag);
+
+            const bounds = inner.node().getBBox();
+            const scale = Math.min(1.2, Math.min((width - 120) / (bounds.width + 80), (height - 80) / (bounds.height + 80)));
+            const translate = [
+                (width - bounds.width * scale) / 2,
+                (height - bounds.height * scale) / 2
+            ];
+            const initialTransform = d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale);
+            svg.call(zoom.transform, initialTransform);
+        }
+
+        function renderChatHistoryList(history) {
+            if (!Array.isArray(history) || history.length === 0) {
+                return '<p class="text-sm text-slate-600">No chat history recorded.</p>';
+            }
+            const items = history.map((entry) => {
+                const isObject = entry && typeof entry === 'object';
+                const role = isObject ? (entry.type || 'user') : 'user';
+                const timestamp = isObject && entry.timestamp ? new Date(entry.timestamp).toLocaleString() : '';
+                const content = isObject ? entry.content : entry;
+                return `
+                    <li>
+                        <span class="font-medium text-slate-800">${escapeHtml(String(role).toUpperCase())}</span>
+                        <span class="text-xs text-slate-500 ml-2">${escapeHtml(timestamp)}</span>
+                        <div class="mt-1">${escapeHtml(content || '')}</div>
+                    </li>
+                `;
+            }).join('');
+
+            return `
+                <ol class="list-decimal list-inside space-y-2 text-sm text-slate-700">
+                    ${items}
+                </ol>
+            `;
+        }
+
         // Render mode-specific preview
         function renderModeSpecificPreview(mode, data) {
             switch (mode) {
                 case 'mindmap':
+                    const tree = data.mindmapData || null;
+                    const nodeCount = countMindmapNodesClient(tree);
+                    const snippet = tree ? mindmapPreviewSnippet(tree) : 'No mindmap activity captured yet.';
                     return `
                         <div class="border-t border-gray-100 pt-4">
-                            <div class="text-sm text-gray-600">
-                                <strong>Topic:</strong> ${data.mainTopic || 'Not specified'}
-                            </div>
-                            <div class="text-sm text-gray-600 mt-1">
-                                <strong>Nodes:</strong> ${data.nodeCount || 0} nodes generated
-                            </div>
+                            <div class="text-sm text-gray-600"><strong>Topic:</strong> ${escapeHtml(data.mainTopic || 'Not specified')}</div>
+                            <div class="text-sm text-gray-600 mt-1"><strong>Nodes:</strong> ${nodeCount}</div>
+                            <div class="text-xs text-slate-500 mt-2">${escapeHtml(snippet)}</div>
                         </div>
                     `;
                 case 'checkbox':
+                    const total = data.totalCriteria || 0;
+                    const groupLines = (data.groupProgress || []).map(group => `
+                        <div class="text-xs text-slate-500">Group ${group.groupNumber}: ${group.completed}/${group.total}</div>
+                    `).join('');
+                    const groupSummary = groupLines || '<div class="text-xs text-slate-400">No group checklists completed yet.</div>';
                     return `
-                        <div class="border-t border-gray-100 pt-4">
-                            <div class="flex items-center justify-between text-sm">
-                                <span class="text-gray-600">
-                                    <strong>Progress:</strong> ${data.completedCriteria}/${data.totalCriteria} criteria completed
-                                </span>
-                                <div class="w-24 bg-gray-200 rounded-full h-2">
-                                    <div class="bg-green-500 h-2 rounded-full" style="width: ${data.completionRate}%"></div>
-                                </div>
-                            </div>
+                        <div class="border-t border-gray-100 pt-4 space-y-2">
+                            <div class="text-sm text-gray-600"><strong>Total Criteria:</strong> ${total}</div>
+                            ${groupSummary}
                         </div>
                     `;
                 default:
@@ -297,6 +512,11 @@
                 document.getElementById('sessionModal').classList.remove('hidden');
                 
                 lucide.createIcons();
+                if (data.session.mode === "mindmap") {
+                    const tree = data.modeSpecificData?.mindmapArchive?.mindmap_data || data.modeSpecificData?.mindmapSession?.current_mindmap || null;
+                    const containerId = `mindmap-preview-${sessionCode}`;
+                    requestAnimationFrame(() => renderMindmapPreview(tree, containerId));
+                }
 
             } catch (err) {
                 console.error('❌ Failed to load session details:', err);
@@ -307,6 +527,16 @@
         // Render session details
         function renderSessionDetails(data) {
             const { session, groups, modeSpecificData, stats } = data;
+            const checkboxCriteria = session.mode === 'checkbox' ? (modeSpecificData?.criteria || []) : [];
+            const checkboxProgressEntries = session.mode === 'checkbox' ? (modeSpecificData?.progress || []) : [];
+            const checkboxProgressByGroup = session.mode === 'checkbox'
+                ? checkboxProgressEntries.reduce((map, entry) => {
+                    const key = entry.group_id ? String(entry.group_id) : 'unknown';
+                    if (!map.has(key)) map.set(key, []);
+                    map.get(key).push(entry);
+                    return map;
+                }, new Map())
+                : new Map();
             
             let html = `
                 <div class="space-y-6">
@@ -325,42 +555,42 @@
             // Mode-specific data
             if (modeSpecificData) {
                 if (session.mode === 'checkbox') {
+                    const checkboxScenario = modeSpecificData.checkboxSession?.scenario || '';
+                    const groupSummaryChips = groups.map(group => {
+                        const entries = checkboxProgressByGroup.get(String(group._id)) || [];
+                        const completed = entries.filter(e => e.completed).length;
+                        return `<span class="text-xs text-slate-600 bg-white/70 px-2 py-1 rounded-full border border-slate-200">Group ${group.number}: ${completed}/${checkboxCriteria.length}</span>`;
+                    }).join(' ');
                     html += `
-                        <div class="bg-green-50 rounded-lg p-4">
-                            <h4 class="font-semibold text-gray-900 mb-3">Checkbox Progress</h4>
-                            ${modeSpecificData.checkboxSession?.scenario ? `
-                                <div class="mb-4">
+                        <div class="bg-green-50 rounded-lg p-4 space-y-4">
+                            <div class="flex items-start justify-between">
+                                <h4 class="font-semibold text-gray-900">Checkbox Progress</h4>
+                                <div class="flex flex-wrap gap-2">${groupSummaryChips}</div>
+                            </div>
+                            ${checkboxScenario ? `
+                                <div class="bg-white/80 border border-green-100 rounded-lg p-3 text-sm text-slate-700">
                                     <strong>Scenario:</strong>
-                                    <p class="text-sm text-gray-700 mt-1">${modeSpecificData.checkboxSession.scenario}</p>
+                                    <p class="mt-1">${escapeHtml(checkboxScenario)}</p>
                                 </div>
                             ` : ''}
-                            <div class="space-y-2">
-                                ${modeSpecificData.criteria.map((criterion, index) => `
-                                    <div class="flex items-start space-x-3 p-2 rounded border ${criterion.completed ? 'bg-green-100 border-green-200' : 'bg-white border-gray-200'}">
-                                        <div class="w-5 h-5 rounded border-2 flex items-center justify-center mt-0.5 ${criterion.completed ? 'bg-green-500 border-green-500' : 'border-gray-300'}">
-                                            ${criterion.completed ? '<i data-lucide="check" class="w-3 h-3 text-white"></i>' : ''}
-                                        </div>
-                                        <div class="flex-1">
-                                            <p class="text-sm font-medium text-gray-900">${criterion.description}</p>
-                                            ${criterion.completed && criterion.quote ? `
-                                                <div class="text-xs text-green-700 bg-green-50 rounded px-2 py-1 mt-1">
-                                                    <strong>Quote:</strong> "${criterion.quote}"
-                                                </div>
-                                            ` : ''}
-                                        </div>
-                                    </div>
-                                `).join('')}
-                            </div>
                         </div>
                     `;
                 } else if (session.mode === 'mindmap') {
+                    const mindmapTree = modeSpecificData?.mindmapArchive?.mindmap_data || modeSpecificData?.mindmapSession?.current_mindmap || null;
+                    const mindmapChatHistory = modeSpecificData?.mindmapSession?.chat_history || modeSpecificData?.mindmapArchive?.chat_history || [];
+                    const totalNodes = countMindmapNodesClient(mindmapTree);
+                    const mindmapContainerId = `mindmap-preview-${session.code}`;
                     html += `
-                        <div class="bg-sky-50 rounded-lg p-4">
-                            <h4 class="font-semibold text-gray-900 mb-3">Mindmap Data</h4>
-                            <div class="text-sm">
-                                <p><strong>Main Topic:</strong> ${modeSpecificData.mindmapSession?.main_topic || 'Not specified'}</p>
-                                <p><strong>Nodes Generated:</strong> ${modeSpecificData.mindmapArchive?.node_count || 0}</p>
-                                <p><strong>Chat Messages:</strong> ${modeSpecificData.mindmapSession?.chat_history?.length || 0}</p>
+                        <div class="bg-sky-50 rounded-lg p-4 space-y-4">
+                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm text-slate-700">
+                                <div><strong>Main Topic:</strong> ${escapeHtml(modeSpecificData.mindmapSession?.main_topic || 'Not specified')}</div>
+                                <div><strong>Total Nodes:</strong> ${totalNodes}</div>
+                                <div><strong>Chat Turns:</strong> ${mindmapChatHistory.length}</div>
+                            </div>
+                            <div id="${mindmapContainerId}" class="mindmap-preview"></div>
+                            <div>
+                                <h5 class="font-medium text-slate-900 mb-2">Chat History</h5>
+                                ${renderChatHistoryList(mindmapChatHistory)}
                             </div>
                         </div>
                     `;
@@ -378,10 +608,11 @@
                                     <h5 class="font-medium text-gray-900">Group ${group.number}</h5>
                                     <span class="text-sm text-gray-600">${group.transcripts.length} transcripts</span>
                                 </div>
+                                ${session.mode === 'checkbox' ? renderGroupChecklist(group, checkboxCriteria, checkboxProgressByGroup) : ''}
                                 ${group.summary?.content ? `
                                     <div class="bg-blue-50 rounded p-3 mb-3">
                                         <strong class="text-sm">Summary:</strong>
-                                        <p class="text-sm text-gray-700 mt-1">${group.summary.content}</p>
+                                        <p class="text-sm text-gray-700 mt-1">${escapeHtml(group.summary.content)}</p>
                                     </div>
                                 ` : ''}
                                 <div class="space-y-2 max-h-60 overflow-y-auto">
@@ -391,7 +622,7 @@
                                                 <span class="font-medium">Segment ${index + 1}</span>
                                                 <span class="text-xs text-gray-500">${new Date(transcript.created_at).toLocaleTimeString()}</span>
                                             </div>
-                                            <p class="text-gray-700">${transcript.text}</p>
+                                            <p class="text-gray-700">${escapeHtml(transcript.text || '')}</p>
                                         </div>
                                     `).join('')}
                                 </div>

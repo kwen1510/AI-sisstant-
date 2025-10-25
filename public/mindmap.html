@@ -20,92 +20,159 @@
     <script src="/js/admin-signout.js" defer></script>
     <script src="/js/navbar.js"></script>
     <script src="https://d3js.org/d3.v7.min.js"></script>
+    <link rel="stylesheet" href="/styles/theme.css">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
         
         body {
             font-family: 'Inter', sans-serif;
-            background: linear-gradient(160deg, #e0f2fe 0%, #f9fafb 45%, #eef2ff 100%);
+            background: linear-gradient(135deg, rgba(191, 219, 254, 0.9) 0%, rgba(167, 243, 208, 0.85) 55%, rgba(255, 255, 255, 0.95) 100%);
         }
-        
-        .mindmap-container {
-            position: relative;
-            background: linear-gradient(150deg, rgba(248, 250, 252, 0.96), rgba(219, 234, 254, 0.68));
-            border-radius: 16px;
-            box-shadow: inset 0 1px 2px rgba(148, 163, 184, 0.15);
-            overflow: hidden;
+
+        .gradient-bg {
+            background: linear-gradient(135deg, #a7f3d0 0%, #bae6fd 100%);
         }
-        
-        .mindmap-svg {
-            width: 100%;
-            height: 100%;
-        }
-        
-        .mindmap-link {
-            fill: none;
-            stroke: rgba(148, 163, 184, 0.55);
-            stroke-width: 1.5;
-        }
-        
-        .mindmap-node circle {
-            cursor: grab;
-            transition: transform 0.15s ease, filter 0.2s ease;
-            filter: drop-shadow(0 6px 12px rgba(15, 23, 42, 0.15));
-        }
-        
-        .mindmap-node.dragging circle,
-        .mindmap-node:hover circle {
-            transform: scale(1.03);
-            filter: drop-shadow(0 10px 16px rgba(15, 23, 42, 0.22));
-        }
-        
-        .mindmap-node text {
-            font-family: 'Inter', sans-serif;
-            fill: #1f2937;
-            font-size: 12px;
-            pointer-events: none;
-        }
-        
-        .mindmap-controls {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.5rem;
-        }
-        
-        .mindmap-button {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.4rem;
-            padding: 0.55rem 0.9rem;
-            border-radius: 999px;
-            font-size: 0.8rem;
-            font-weight: 600;
-            transition: transform 0.12s ease, box-shadow 0.12s ease;
-        }
-        
-        .mindmap-button:hover {
-            transform: translateY(-1px);
-        }
-        
-        .mindmap-button.neutral {
-            background: rgba(241, 245, 249, 0.85);
-            border: 1px solid rgba(148, 163, 184, 0.45);
-            color: #0f172a;
-        }
-        
-        .mindmap-button.accent {
-            background: linear-gradient(135deg, #60a5fa, #38bdf8);
-            border: none;
-            color: #fff;
-        }
-        
-        .mindmap-button.destructive {
-            background: linear-gradient(135deg, #f87171, #ef4444);
-            border: none;
-            color: #fff;
-        }
-        
-        /* Chat Styles */
+
+.mindmap-shell {
+    max-width: 100%;
+    width: 100%;
+    padding: clamp(1.25rem, 3vw, 3.5rem);
+}
+
+@media (min-width: 1280px) {
+    .mindmap-shell {
+        padding-left: clamp(2rem, 4vw, 5rem);
+        padding-right: clamp(2rem, 4vw, 5rem);
+    }
+}
+
+.mindmap-workspace {
+    width: 100%;
+    min-height: calc(100vh - 130px);
+    height: calc(100vh - 130px);
+}
+
+@media (max-width: 1024px) {
+    .mindmap-workspace {
+        min-height: calc(100vh - 150px);
+        height: auto;
+    }
+}
+
+.mindmap-stage,
+.mindmap-console {
+    height: 100%;
+    min-height: 0;
+}
+
+.mindmap-stage {
+    display: flex;
+    flex-direction: column;
+}
+
+.mindmap-console {
+    max-height: calc(100vh - 130px);
+    overflow-y: auto;
+}
+
+#chatPanel {
+    max-height: calc(100vh - 130px);
+    overflow-y: auto;
+}
+
+@media (max-width: 1024px) {
+    .mindmap-console,
+    #chatPanel {
+        max-height: none;
+    }
+}
+
+.mindmap-container {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    background: linear-gradient(150deg, rgba(255, 255, 255, 0.96), rgba(191, 219, 254, 0.6));
+    border-radius: 16px;
+    box-shadow: inset 0 1px 2px rgba(148, 163, 184, 0.12);
+    overflow: hidden;
+}
+
+.mindmap-svg {
+    width: 100%;
+    height: 100%;
+}
+
+.mindmap-link {
+    fill: none;
+    stroke: rgba(148, 163, 184, 0.55);
+    stroke-width: 1.5;
+}
+
+.mindmap-node circle {
+    cursor: grab;
+    transition: transform 0.15s ease, filter 0.2s ease;
+    filter: drop-shadow(0 6px 12px rgba(15, 23, 42, 0.15));
+}
+
+.mindmap-node.dragging circle,
+.mindmap-node:hover circle {
+    transform: scale(1.03);
+    filter: drop-shadow(0 10px 16px rgba(15, 23, 42, 0.22));
+}
+
+.mindmap-node text {
+    font-family: 'Inter', sans-serif;
+    fill: #1f2937;
+    font-size: 12px;
+    pointer-events: none;
+}
+
+.mindmap-node circle.node-selected {
+    stroke: #fbbf24;
+    stroke-width: 4;
+    filter: drop-shadow(0 0 12px rgba(234, 179, 8, 0.45));
+}
+
+.mindmap-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.mindmap-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.55rem 0.9rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.mindmap-button:hover {
+    transform: translateY(-1px);
+}
+
+.mindmap-button.neutral {
+    background: rgba(241, 245, 249, 0.85);
+    border: 1px solid rgba(148, 163, 184, 0.45);
+    color: #0f172a;
+}
+
+.mindmap-button.accent {
+    background: linear-gradient(135deg, #60a5fa, #38bdf8);
+    border: none;
+    color: #fff;
+}
+
+.mindmap-button.destructive {
+    background: linear-gradient(135deg, #f87171, #ef4444);
+    border: none;
+    color: #fff;
+}
+
+/* Chat Styles */
         .chat-message {
             margin-bottom: 12px;
             padding: 12px 16px;
@@ -256,16 +323,19 @@
         
         /* Mobile responsive improvements */
         @media (max-width: 640px) {
+            .mindmap-workspace {
+                min-height: auto;
+                height: auto;
+            }
+            .mindmap-stage {
+                min-height: 320px;
+            }
             .mindmap-container {
-                height: 300px !important;
-                min-height: 300px !important;
+                min-height: 320px;
             }
-            
             #chatPanel {
-                height: 350px !important;
-                min-height: 350px !important;
+                min-height: 320px;
             }
-            
             /* Better touch targets on mobile */
             .node circle {
                 r: 8px;
@@ -274,30 +344,6 @@
             
             .node text {
                 font-size: 13px !important;
-            }
-        }
-        
-        @media (min-width: 641px) and (max-width: 1024px) {
-            .mindmap-container {
-                height: 450px !important;
-                min-height: 450px !important;
-            }
-            
-            #chatPanel {
-                height: 450px !important;
-                min-height: 450px !important;
-            }
-        }
-        
-        @media (min-width: 1025px) {
-            .mindmap-container {
-                height: 600px !important;
-                min-height: 600px !important;
-            }
-            
-            #chatPanel {
-                height: 600px !important;
-                min-height: 600px !important;
             }
         }
         
@@ -428,7 +474,7 @@
         }
     </style>
 </head>
-<body class="bg-gray-50 font-sans text-black">
+<body class="mindmap-page">
     <div id="mindmapToastContainer" class="mindmap-toast-container"></div>
     <!-- Global App Navbar -->
     <div id="app-navbar"></div>
@@ -450,115 +496,111 @@
     </div>
 
     <!-- Main Content -->
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <main class="page-shell stack mindmap-shell">
         <!-- Initial Setup Section -->
-        <div id="setupSection" class="bg-white rounded-xl shadow-lg border border-gray-200 p-4 sm:p-6 mb-4 sm:mb-6">
-            <div class="text-center mb-4 sm:mb-6">
-                <h2 class="text-xl sm:text-2xl font-bold text-gray-900">🧠 AI Mindmap Generator</h2>
+        <div id="setupSection" class="surface surface--padded surface--static stack" style="gap:1.5rem;">
+            <div class="text-center stack" style="gap:0.4rem;">
+                <h2 class="page-title" style="justify-content:center; gap:0.65rem; font-size:2rem;">
+                    <span>🧠</span>
+                    <span>AI Mindmap Generator</span>
+                </h2>
+                <p class="page-subtitle" style="margin:0 auto; text-align:center;">Kick off a mindmap from a main topic and optional seed notes. Everything in the workspace now matches the bright, glassy login aesthetic.</p>
             </div>
             
-            <div class="space-y-4">
-                <div>
-                    <label for="mainTopicInput" class="block text-sm font-semibold text-gray-700 mb-2">Main Topic</label>
-                    <div class="input-row">
-                        <div class="input-col">
-                            <input 
-                                id="mainTopicInput" 
-                                type="text" 
-                                class="w-full px-3 sm:px-4 py-2 sm:py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm sm:text-base"
-                                placeholder="Enter the main topic for your mindmap..."
-                                value=""
-                            >
-                        </div>
-                    </div>
+            <div class="stack">
+                <div class="input-group">
+                    <label for="mainTopicInput">Main Topic</label>
+                    <input 
+                        id="mainTopicInput" 
+                        type="text" 
+                        class="input-field"
+                        placeholder="Enter the main topic for your mindmap..."
+                        value=""
+                    >
                  </div>
                 
-                <div>
-                    <label for="initialTextInput" class="block text-sm font-semibold text-gray-700 mb-2">Initial Text</label>
-                    <textarea 
-                        id="initialTextInput" 
-                        rows="6" 
-                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base resize-vertical"
-                        placeholder="Paste a classroom discussion snippet or key notes here to seed the first mindmap..."
-                    ></textarea>
+                <div class="stack" style="gap:0.75rem;">
+                    <div class="cluster" style="justify-content:space-between; gap:0.75rem;">
+                        <label for="initialTextInput" style="text-transform:uppercase; letter-spacing:0.06em; font-size:0.75rem; color:var(--color-text-muted); font-weight:700;">Initial Text</label>
+                        <button 
+                            type="button" 
+                            id="initialTextToggleBtn"
+                            aria-controls="initialTextWrapper"
+                            aria-expanded="false"
+                            class="btn btn-muted glow"
+                            style="min-height:36px; padding:0.35rem 0.9rem; font-size:0.78rem;"
+                            title="Paste notes here to auto-generate your first mindmap."
+                        >
+                            <span id="initialTextToggleText">Add initial text</span>
+                        </button>
+                    </div>
+                    <p class="muted" style="font-size:0.85rem;">Optional: seed the mindmap with transcript snippets or key ideas before class.</p>
+                    <div id="initialTextWrapper" class="hidden">
+                        <textarea 
+                            id="initialTextInput" 
+                            rows="6" 
+                            class="input-field"
+                            placeholder="Paste a classroom discussion snippet or key notes here to seed the first mindmap..."
+                        ></textarea>
+                    </div>
                 </div>
                 
-                <div class="flex flex-col sm:flex-row gap-3">
-                    <button 
-                        id="generateBtn" 
-                        class="flex-1 bg-blue-200 text-black px-6 py-3 rounded-lg hover:bg-blue-300 transition-all duration-200 flex items-center justify-center text-base font-semibold shadow border border-blue-300 touch-friendly"
-                    >
-                        <i data-lucide="brain-circuit" class="w-5 h-5 mr-2"></i>
+                <div class="cluster" style="gap:0.75rem; flex-wrap:wrap;">
+                    <button id="generateBtn" class="btn btn-primary glow" style="flex:1 1 220px;">
+                        <i data-lucide="brain-circuit" class="w-5 h-5"></i>
                         Generate Initial Mindmap
                     </button>
-                    <button 
-                        id="clearBtn" 
-                        class="bg-gray-200 text-black px-6 py-3 rounded-lg hover:bg-gray-300 transition-colors flex items-center justify-center text-base font-medium touch-friendly border border-slate-300"
-                    >
-                        <i data-lucide="trash-2" class="w-4 h-4 mr-2"></i>
+                    <button id="clearBtn" class="btn btn-muted" style="flex:1 1 160px;">
+                        <i data-lucide="trash-2" class="w-4 h-4"></i>
                         Clear
                     </button>
                 </div>
                 
                 <!-- Voice Recording Section -->
-                <div class="flex flex-col sm:flex-row gap-3">
-                    <button 
-                        id="startRecordingBtn" 
-                        class="flex-1 bg-green-200 text-black px-4 sm:px-6 py-3 rounded-lg hover:bg-green-300 transition-all duration-200 flex items-center justify-center text-sm sm:text-base font-semibold shadow border border-green-300 touch-friendly"
-                    >
-                        <i data-lucide="mic" class="w-4 sm:w-5 h-4 sm:h-5 mr-2"></i>
+                <div class="cluster" style="gap:0.75rem; flex-wrap:wrap;">
+                    <button id="startRecordingBtn" class="btn btn-accent glow" style="flex:1 1 220px;">
+                        <i data-lucide="mic" class="w-4 h-4"></i>
                         <span class="hidden sm:inline">🎤 Start Auto-Recording</span>
                         <span class="sm:hidden">🎤 Start Recording</span>
                     </button>
-                    <button 
-                        id="stopRecordingMainBtn"
-                        class="hidden flex-1 bg-rose-200 text-black px-4 sm:px-6 py-3 rounded-lg hover:bg-rose-300 transition-all duration-200 flex items-center justify-center text-sm sm:text-base font-semibold shadow border border-rose-300 touch-friendly"
-                    >
-                        <i data-lucide="square" class="w-4 sm:w-5 h-4 sm:h-5 mr-2"></i>
-                        <span>🛑 Stop Recording</span>
-                    </button>
-                    <div class="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-2">
-                        <div class="flex items-center space-x-2">
-                            <label for="intervalInput" class="text-xs sm:text-sm font-medium text-gray-700 whitespace-nowrap">Interval:</label>
+                    <div class="input-inline" style="gap:0.5rem;">
+                        <label for="intervalInput">Interval</label>
+                        <div class="cluster" style="gap:0.4rem;">
                             <input 
                                 id="intervalInput" 
                                 type="number" 
                                 min="5" 
                                 max="60" 
                                 value="10" 
-                                class="w-16 sm:w-20 px-2 sm:px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xs sm:text-sm"
+                                class="input-field"
+                                style="width:88px; padding:0.55rem 0.75rem;"
                             >
-                            <span class="text-xs sm:text-sm text-gray-600">sec</span>
+                            <span class="muted">sec</span>
                         </div>
                     </div>
                 </div>
                 
                 <!-- Recording Status -->
-                <div id="recordingStatus" class="hidden bg-red-50 border border-red-200 rounded-lg p-4">
-                    <div class="flex items-center justify-between">
-                        <div class="flex items-center">
-                            <div class="w-3 h-3 bg-red-500 rounded-full animate-pulse mr-3"></div>
-                            <span class="text-red-800 font-medium">🎤 Auto-Recording Active</span>
+                <div id="recordingStatus" class="hidden floating-card floating-card--tight" style="background:rgba(248,113,113,0.12); border-color:rgba(248,113,113,0.45);">
+                    <div class="cluster" style="justify-content:space-between;">
+                        <div class="cluster" style="gap:0.6rem;">
+                            <div class="smallicon animate-pulse" style="width:0.85rem; height:0.85rem; background:#ef4444; border-radius:50%; box-shadow:0 0 0 6px rgba(248,113,113,0.25);"></div>
+                            <span style="font-weight:600; color:#991b1b;">🎤 Auto-Recording Active</span>
                         </div>
-                        <div class="flex items-center space-x-2">
-                            <span class="text-sm text-gray-600">Interval: <span id="currentInterval">10</span>s</span>
-                        </div>
+                        <span class="muted">Interval: <span id="currentInterval">10</span>s</span>
                     </div>
-                    <div class="mt-2 text-sm text-red-600">
-                        <div class="flex items-center justify-between">
-                            <span>🎓 <strong>Academic Mode:</strong> Only educational content will be added to mindmap</span>
-                            <span class="text-gray-600">Status: <span id="uploadStatus">Ready</span></span>
-                        </div>
+                    <div class="muted" style="margin-top:0.65rem; font-size:0.9rem;">
+                        🎓 <strong>Academic Mode:</strong> Only educational content will be added to the mindmap. Status: <span id="uploadStatus" style="color:#0f172a; font-weight:600;">Ready</span>
                     </div>
                 </div>
             </div>
             
-            <div id="loadingIndicator" class="hidden text-center py-8">
-                <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-4"></div>
-                <p class="text-gray-600">Processing your speech and updating mindmap...</p>
+            <div id="loadingIndicator" class="hidden text-center stack surface surface--static" style="padding:1.5rem;">
+                <i data-lucide="loader-2" class="w-8 h-8 mx-auto animate-spin text-sky-500"></i>
+                <p class="muted">Processing your audio and updating the mindmap…</p>
             </div>
             
-            <div id="errorMessage" class="hidden mt-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-800"></div>
+            <div id="errorMessage" class="hidden floating-card floating-card--tight" style="background:rgba(254,226,226,0.88); border-color:rgba(248,113,113,0.45); color:#b91c1c;"></div>
         </div>
 
         <!-- Mindmap Prompt Management Section -->
@@ -595,7 +637,7 @@
                                     <i data-lucide="refresh-cw" class="w-3 h-3 mr-1"></i>
                                     Refresh
                                 </button>
-                                <button onclick="openCreateMindmapPromptModal()" class="text-xs bg-blue-200 text-black px-2 py-1 rounded hover:bg-blue-300 flex items-center border border-blue-300">
+                                <button onclick="openCreateMindmapPromptModal()" class="btn btn-primary text-xs py-1 px-3">
                                     <i data-lucide="plus" class="w-3 h-3 mr-1"></i>
                                     New
                                 </button>
@@ -627,45 +669,28 @@
                             </div>
                         </div>
                     </div>
+                    
+                    <!-- Prompt Actions -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 border-t border-gray-200 pt-4 mt-6">
+                        <button onclick="loadMindmapPromptLibrary()" class="btn btn-secondary text-xs py-2">
+                            <i data-lucide="book-open" class="w-4 h-4 mr-2"></i>
+                            Refresh Library
+                        </button>
+                        <button onclick="highlightMindmapPrompt(null)" class="btn btn-muted text-xs py-2">
+                            <i data-lucide="eye-off" class="w-4 h-4 mr-2"></i>
+                            Hide Selection
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
 
         <!-- Main Mindmap Interface -->
         <div id="mindmapInterface" class="hidden">
-            <div class="flex flex-col lg:flex-row gap-4 lg:gap-6">
-                <!-- Mindmap Visualization -->
-                <div class="flex-1 mindmap-hero rounded-2xl border overflow-hidden backdrop-blur">
-                    <div class="p-4 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                        <div class="min-w-0">
-                            <h3 class="text-base sm:text-xl font-semibold text-slate-900 flex items-center gap-2">
-                                <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-white shadow-sm border border-slate-200">
-                                    <i data-lucide="network" class="w-4 h-4 text-sky-500"></i>
-                                </span>
-                                <span class="truncate">Interactive Mindmap</span>
-                            </h3>
-                            <p class="text-xs sm:text-sm text-slate-600 mt-1">Use pinch/scroll to zoom, drag nodes to reposition, tap labels to read more.</p>
-                        </div>
-                        <div class="flex flex-wrap items-center gap-2 sm:gap-3">
-                            <button id="recenterBtn" class="mindmap-pill-btn secondary">
-                                <i data-lucide="focus" class="w-3.5 h-3.5"></i>
-                                <span>Recenter</span>
-                            </button>
-                            <button id="toggleChatBtn" class="mindmap-pill-btn">
-                                <i data-lucide="message-circle" class="w-3.5 h-3.5"></i>
-                                <span>Show AI Chat</span>
-                            </button>
-                            <button id="continueRecordingBtn" class="mindmap-pill-btn destructive hidden">
-                                <i data-lucide="square" class="w-3.5 h-3.5"></i>
-                                <span>Stop Recording</span>
-                            </button>
-                            <button id="resetSessionBtn" class="mindmap-pill-btn destructive">
-                                <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
-                                <span>Reset</span>
-                            </button>
-                        </div>
-                    </div>
-                    <div class="mindmap-container" style="height: 400px; min-height: 400px;" id="mindmapContainer">
+            <div class="mindmap-workspace flex flex-col xl:flex-row gap-5 2xl:gap-7">
+                <!-- Mindmap Canvas -->
+                <section class="flex-1 mindmap-stage bg-white/85 rounded-2xl border border-slate-200 shadow-lg backdrop-blur flex flex-col overflow-hidden">
+                    <div class="flex-1 mindmap-container" id="mindmapContainer">
                         <div class="flex items-center justify-center h-full text-gray-500">
                             <div class="text-center p-4">
                                 <i data-lucide="brain-circuit" class="w-12 sm:w-16 h-12 sm:h-16 mx-auto mb-4 opacity-50"></i>
@@ -674,30 +699,118 @@
                             </div>
                         </div>
                     </div>
-                    
-                    <!-- Session Info Bar -->
-                    <div id="sessionInfoBar" class="hidden p-2 sm:p-3 border-t border-gray-100 bg-gray-50 text-xs sm:text-sm text-gray-600">
-                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                            <div class="flex flex-wrap items-center gap-2 sm:gap-4 text-xs">
-                                <span><strong>Topic:</strong> <span id="currentTopic" class="break-words">-</span></span>
-                                <span><strong>Started:</strong> <span id="sessionStartTime">-</span></span>
-                                <span><strong>Duration:</strong> <span id="sessionDuration">0:00</span></span>
-                            </div>
-                            <button 
-                                id="saveSessionBtn"
-                                class="bg-blue-600 text-white px-3 py-1 rounded text-xs sm:text-sm hover:bg-blue-700 transition-colors flex items-center self-start sm:self-auto"
-                            >
-                                <i data-lucide="download" class="w-3 sm:w-4 h-3 sm:h-4 mr-1"></i>
-                                <span class="hidden sm:inline">Download JSON</span>
-                                <span class="sm:hidden">Save</span>
-                            </button>
+                    <div id="sessionInfoBar" class="hidden px-4 py-3 border-t border-slate-200 bg-slate-50 text-xs sm:text-sm text-slate-600">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                            <span><strong>Session:</strong> <span id="sessionCode" class="break-words">-</span></span>
+                            <span><strong>Topic:</strong> <span id="currentTopic" class="break-words">-</span></span>
+                            <span><strong>Started:</strong> <span id="sessionStartTime">-</span></span>
+                            <span><strong>Duration:</strong> <span id="sessionDuration">0:00</span></span>
                         </div>
                     </div>
-                </div>
+                </section>
+
+                <!-- Control Console -->
+                <aside class="mindmap-console w-full xl:w-[360px] 2xl:w-[400px] bg-white/95 rounded-2xl border border-slate-200 shadow-lg backdrop-blur flex flex-col gap-6 p-5">
+                    <div class="space-y-3">
+                        <div>
+                            <h3 class="text-lg font-semibold text-slate-900 flex items-center gap-2">
+                                <span class="inline-flex items-center justify-center w-9 h-9 rounded-full bg-blue-100 text-blue-500">
+                                    <i data-lucide="network" class="w-4 h-4"></i>
+                                </span>
+                                Interactive Mindmap
+                            </h3>
+                            <p class="text-sm text-slate-600 mt-1">Use pinch/scroll to zoom, drag nodes to reposition, tap labels to read more.</p>
+                        </div>
+
+                        <div class="grid grid-cols-1 gap-2">
+                            <button id="resumeRecordingBtn" class="btn btn-accent glow justify-center hidden">
+                                <i data-lucide="mic" class="w-4 h-4"></i>
+                                Start / Resume Recording
+                            </button>
+                            <button id="stopRecordingMainBtn" class="btn btn-danger justify-center hidden">
+                                <i data-lucide="square" class="w-4 h-4"></i>
+                                Pause Recording
+                            </button>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                <button id="recenterBtn" class="btn btn-muted justify-center">
+                                    <i data-lucide="focus" class="w-4 h-4"></i>
+                                    <span>Recenter</span>
+                                </button>
+                                <button id="toggleChatBtn" class="btn btn-muted justify-center">
+                                    <i data-lucide="message-circle" class="w-4 h-4"></i>
+                                    Show AI Chat
+                                </button>
+                            </div>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                <button id="resetSessionBtn" class="btn btn-muted justify-center">
+                                    <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+                                    Restart
+                                </button>
+                                <button id="saveSessionBtn" class="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2 shadow hover:bg-blue-700 transition-colors">
+                                    <i data-lucide="download" class="w-4 h-4"></i>
+                                    Export JSON
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="border-t border-slate-200 pt-4 space-y-3">
+                        <div class="flex items-start justify-between gap-3">
+                            <div>
+                                <p class="text-xs uppercase tracking-wider text-slate-500 font-semibold" id="mindmapSidebarMode">Mode: right only</p>
+                                <h4 class="text-base font-semibold text-slate-900 mt-1">Node tools</h4>
+                                <p class="text-xs text-slate-500 mt-1">Select a node to curate examples or adjust the mindmap.</p>
+                            </div>
+                            <div class="flex flex-col gap-2">
+                                <button id="mindmapLayoutRightBtn" class="mindmap-button neutral text-xs px-3 py-1.5 whitespace-nowrap">Right layout</button>
+                                <button id="mindmapLayoutBothBtn" class="mindmap-button neutral text-xs px-3 py-1.5 whitespace-nowrap">Split layout</button>
+                            </div>
+                        </div>
+
+                        <div id="mindmapSidebarHint" class="bg-slate-50 border border-slate-200/70 rounded-xl p-3 text-xs text-slate-600 leading-relaxed">
+                            Tap a node to unlock tools. Examples generated here use the full branch context so the model understands how ideas connect.
+                        </div>
+
+                        <div id="mindmapSidebarSelected" class="hidden bg-blue-50 border border-blue-200/70 rounded-xl p-3">
+                            <div class="text-[10px] uppercase tracking-[0.18em] text-blue-500 font-semibold mb-1">Selected node</div>
+                            <div id="mindmapSidebarNodeLabel" class="text-sm font-semibold text-slate-900 break-words">-</div>
+                            <p id="mindmapSidebarContext" class="text-[11px] mt-2 text-blue-700/80 leading-snug"></p>
+                        </div>
+
+                        <div id="mindmapSidebarActions" class="flex flex-col gap-3 opacity-50 pointer-events-none">
+                            <div class="flex items-center justify-between gap-2">
+                                <label for="mindmapExampleCount" class="text-xs font-medium text-slate-600 uppercase tracking-wide">Examples</label>
+                                <input 
+                                    id="mindmapExampleCount" 
+                                    type="number" 
+                                    min="1" 
+                                    max="5" 
+                                    value="2"
+                                    class="w-16 px-2 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-400 focus:border-transparent"
+                                >
+                            </div>
+                            <button id="mindmapGenerateExamplesBtn" class="btn btn-accent glow justify-center">
+                                <i data-lucide="sparkles" class="w-4 h-4"></i>
+                                <span>⚡ Generate examples</span>
+                            </button>
+                            <button id="mindmapDeleteNodeBtn" class="btn btn-danger justify-center">
+                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                Remove node
+                            </button>
+                        </div>
+
+                        <div class="border-t border-slate-200 pt-3">
+                            <p class="text-[10px] uppercase tracking-[0.2em] text-slate-400 font-semibold mb-2">Recent output</p>
+                            <div id="mindmapSidebarExamples" class="text-xs text-slate-600 space-y-2">
+                                <p class="text-xs text-slate-500">Generated examples will appear here.</p>
+                            </div>
+                        </div>
+                    </div>
+                </aside>
 
                 <!-- Chat Panel (Responsive: slides in from bottom on mobile, from right on desktop) -->
-                <div id="chatPanel" class="hidden w-full lg:w-96 bg-white rounded-xl shadow-lg border border-gray-200 flex flex-col" style="height: 400px; min-height: 400px;">
-                    <div class="p-3 sm:p-4 border-b border-gray-100 bg-gradient-to-r from-green-50 to-blue-50 flex-shrink-0">
+                <div id="chatPanel" class="hidden w-full xl:w-96 bg-white rounded-2xl shadow-lg border border-gray-200 flex flex-col min-h-0">
+                    <div class="p-3 sm:p-4 border-b border-gray-100 bg-gradient-to-r from-green-50 to-blue-50 flex-shrink-0 rounded-t-2xl">
                         <div class="flex items-center justify-between">
                             <div class="min-w-0">
                                 <h3 class="text-sm sm:text-lg font-bold text-gray-900 flex items-center">
@@ -722,7 +835,7 @@
                         </div>
                     </div>
 
-                    <div class="p-3 sm:p-4 border-t border-gray-100 bg-gray-50 flex-shrink-0">
+                    <div class="p-3 sm:p-4 border-t border-gray-100 bg-gray-50 flex-shrink-0 rounded-b-2xl">
                         <div class="flex gap-2">
                             <textarea 
                                 id="chatInput" 
@@ -735,7 +848,7 @@
                             <button 
                                 id="sendBtn" 
                                 disabled
-                                class="bg-blue-200 text-black px-3 sm:px-4 py-2 rounded-lg hover:bg-blue-300 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center touch-friendly flex-shrink-0 border border-blue-300"
+                                class="btn btn-primary glow px-3 sm:px-4 py-2 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center flex-shrink-0"
                                 onclick="addToMindmap()"
                             >
                                 <i data-lucide="send" class="w-3 sm:w-4 h-3 sm:h-4"></i>
@@ -766,11 +879,67 @@
         let mediaRecorder = null;
         let audioChunks = [];
         let recognition = null;
-        let sessionStartTime = null;
+        let sessionStartedAt = null;
+        let sessionActiveStartMs = null;
+        let sessionAccumulatedMs = 0;
         let durationTimer = null;
         let stream = null;
         let chunkInterval = 20000; // Default 20 seconds
         let recordingTimeout = null;
+        let initialTextCollapsed = true;
+        const mindmapQueryParams = new URLSearchParams(window.location.search);
+        let pendingMindmapPromptFromQuery = mindmapQueryParams.get('prompt');
+        let pendingMindmapTopicFromQuery = mindmapQueryParams.get('topic');
+
+        // Mindmap editor elements
+        const mindmapSidebarMode = document.getElementById('mindmapSidebarMode');
+        const mindmapSidebarHint = document.getElementById('mindmapSidebarHint');
+        const mindmapSidebarSelected = document.getElementById('mindmapSidebarSelected');
+        const mindmapSidebarNodeLabel = document.getElementById('mindmapSidebarNodeLabel');
+        const mindmapSidebarContext = document.getElementById('mindmapSidebarContext');
+        const mindmapSidebarActions = document.getElementById('mindmapSidebarActions');
+        const mindmapSidebarExamples = document.getElementById('mindmapSidebarExamples');
+        const mindmapExampleCountInput = document.getElementById('mindmapExampleCount');
+        const mindmapGenerateExamplesBtn = document.getElementById('mindmapGenerateExamplesBtn');
+        const mindmapDeleteNodeBtn = document.getElementById('mindmapDeleteNodeBtn');
+        const mindmapLayoutRightBtn = document.getElementById('mindmapLayoutRightBtn');
+        const mindmapLayoutBothBtn = document.getElementById('mindmapLayoutBothBtn');
+        const resumeRecordingBtn = document.getElementById('resumeRecordingBtn');
+        const stopRecordingBtn = document.getElementById('stopRecordingMainBtn');
+
+        let mindmapEditorInitialized = false;
+        let mindmapLayoutMode = 'right';
+        let mindmapSelectedNodePath = null;
+        let mindmapSvgSelection = null;
+        let mindmapZoomBehavior = null;
+        let mindmapCurrentZoomTransform = null;
+        let mindmapLastFitTransform = null;
+
+        function generateMindmapNodeId() {
+            if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+                return crypto.randomUUID();
+            }
+            return `node-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+        }
+
+        function ensureMindmapNodeIds(node) {
+            if (!node || typeof node !== 'object') return;
+            if (!node.id) {
+                node.id = generateMindmapNodeId();
+            }
+            if (Array.isArray(node.children)) {
+                node.children.forEach(child => ensureMindmapNodeIds(child));
+            } else {
+                node.children = [];
+            }
+        }
+
+        function getMindmapNodeKey(node) {
+            if (!node) return null;
+            if (node.id) return `id:${node.id}`;
+            const normalized = normalizeNodeName(node.name);
+            return normalized ? `name:${normalized}` : null;
+        }
 
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', () => {
@@ -781,9 +950,9 @@
         function setupEventListeners() {
             document.getElementById('generateBtn').addEventListener('click', generateInitialMindmap);
             document.getElementById('clearBtn').addEventListener('click', clearAll);
-            document.getElementById('startRecordingBtn').addEventListener('click', startAutoRecording);
-            document.getElementById('stopRecordingMainBtn').addEventListener('click', stopRecording);
-            document.getElementById('continueRecordingBtn').addEventListener('click', stopRecording);
+            document.getElementById('startRecordingBtn').addEventListener('click', () => startAutoRecording(false));
+            if (stopRecordingBtn) stopRecordingBtn.addEventListener('click', stopRecording);
+            if (resumeRecordingBtn) resumeRecordingBtn.addEventListener('click', () => startAutoRecording(true));
             document.getElementById('toggleChatBtn').addEventListener('click', toggleChatPanel);
             document.getElementById('hideChatBtn').addEventListener('click', hideChatPanel);
             document.getElementById('recenterBtn').addEventListener('click', recenterMindmap);
@@ -793,6 +962,95 @@
             // Initialize interval input to default 20s on first load
             const ii = document.getElementById('intervalInput');
             if (ii) { ii.value = '20'; updateInterval(); }
+
+            const toggleInitialTextBtn = document.getElementById('initialTextToggleBtn');
+            if (toggleInitialTextBtn) {
+                toggleInitialTextBtn.addEventListener('click', () => {
+                    setInitialTextCollapsed(!initialTextCollapsed);
+                });
+            }
+
+            // Collapse initial text by default unless prefilled
+            const initialTextInput = document.getElementById('initialTextInput');
+            const shouldCollapse = !(initialTextInput && initialTextInput.value.trim().length > 0);
+            setInitialTextCollapsed(shouldCollapse);
+
+            initializeMindmapEditor();
+            updateRecordingButtons();
+            applyMindmapParamsFromQuery();
+            updateStartTimeDisplay();
+            updateDurationDisplay();
+        }
+
+        function updateRecordingButtons() {
+            const startBtn = document.getElementById('startRecordingBtn');
+            if (!startBtn) return;
+
+            if (!currentSession) {
+                startBtn.classList.remove('hidden');
+                if (resumeRecordingBtn) resumeRecordingBtn.classList.add('hidden');
+            } else {
+                startBtn.classList.add('hidden');
+                if (resumeRecordingBtn) {
+                    if (isRecording) {
+                        resumeRecordingBtn.classList.add('hidden');
+                    } else {
+                        resumeRecordingBtn.classList.remove('hidden');
+                    }
+                }
+            }
+
+            if (stopRecordingBtn) {
+                stopRecordingBtn.classList.toggle('hidden', !isRecording);
+            }
+        }
+
+        function setInitialTextCollapsed(collapsed) {
+            const wrapper = document.getElementById('initialTextWrapper');
+            const toggleBtn = document.getElementById('initialTextToggleBtn');
+            const toggleText = document.getElementById('initialTextToggleText');
+            initialTextCollapsed = !!collapsed;
+
+            if (!wrapper || !toggleBtn || !toggleText) return;
+
+            if (initialTextCollapsed) {
+                wrapper.classList.add('hidden');
+                toggleBtn.setAttribute('aria-expanded', 'false');
+                toggleText.textContent = 'Add initial text';
+            } else {
+                wrapper.classList.remove('hidden');
+                toggleBtn.setAttribute('aria-expanded', 'true');
+                toggleText.textContent = 'Hide initial text';
+            }
+        }
+
+        function applyMindmapParamsFromQuery() {
+            if (!pendingMindmapPromptFromQuery && !pendingMindmapTopicFromQuery) return;
+
+            const topicInput = document.getElementById('mainTopicInput');
+            const initialTextInput = document.getElementById('initialTextInput');
+
+            if (pendingMindmapTopicFromQuery && topicInput) {
+                topicInput.value = pendingMindmapTopicFromQuery;
+            }
+
+            if (pendingMindmapPromptFromQuery && initialTextInput) {
+                initialTextInput.value = pendingMindmapPromptFromQuery;
+                setInitialTextCollapsed(false);
+            }
+
+            if (pendingMindmapPromptFromQuery || pendingMindmapTopicFromQuery) {
+                showMindmapToast('Prompt loaded from prompt library', 'success');
+                const url = new URL(window.location.href);
+                url.searchParams.delete('prompt');
+                url.searchParams.delete('topic');
+                url.searchParams.delete('mode');
+                const newSearch = url.searchParams.toString();
+                history.replaceState({}, document.title, `${url.pathname}${newSearch ? `?${newSearch}` : ''}${url.hash}`);
+            }
+
+            pendingMindmapPromptFromQuery = null;
+            pendingMindmapTopicFromQuery = null;
         }
 
         function updateInterval() {
@@ -818,61 +1076,75 @@
             }
         }
 
-        async function startAutoRecording() {
-            const mainTopic = document.getElementById('mainTopicInput').value.trim();
-            
-            if (!mainTopic) {
+        async function startAutoRecording(isResume = false) {
+            if (isRecording) {
+                updateStatus('Recording already in progress', 'info');
+                return;
+            }
+
+            const topicInput = document.getElementById('mainTopicInput');
+            let mainTopic = topicInput ? topicInput.value.trim() : '';
+
+            if (!currentSession && !mainTopic) {
                 showError('Please enter a main topic before starting to record.');
                 return;
             }
 
+            if (currentSession && !mainTopic) {
+                mainTopic = currentSession.mainTopic;
+            }
+
             try {
-                // Update interval from input
                 updateInterval();
-                
-                // Create session if it doesn't exist
+
                 if (!currentSession) {
                     await createMindmapSession(mainTopic);
+                } else if (topicInput && !topicInput.value) {
+                    topicInput.value = currentSession.mainTopic;
                 }
 
-                // Get audio permission
-                stream = await navigator.mediaDevices.getUserMedia({ 
+                stream = await navigator.mediaDevices.getUserMedia({
                     audio: {
                         channelCount: 1,
                         sampleRate: 16000,
                         echoCancellation: true,
                         noiseSuppression: true
-                    } 
+                    }
                 });
 
-                // Update UI - Show recording interface
                 isRecording = true;
-                document.getElementById('setupSection').classList.add('hidden');
-                document.getElementById('mindmapInterface').classList.remove('hidden');
-                document.getElementById('recordingStatus').classList.remove('hidden');
-                
-                // Show/hide recording buttons
-                document.getElementById('startRecordingBtn').classList.add('hidden');
-                document.getElementById('stopRecordingMainBtn').classList.remove('hidden');
-                document.getElementById('continueRecordingBtn').classList.remove('hidden');
-                
-                // Disable interval input during recording
-                document.getElementById('intervalInput').disabled = true;
-                
-                // Start recording cycles
+
+                const setupSection = document.getElementById('setupSection');
+                const interfaceSection = document.getElementById('mindmapInterface');
+                const statusBanner = document.getElementById('recordingStatus');
+                const intervalInput = document.getElementById('intervalInput');
+
+                if (setupSection) setupSection.classList.add('hidden');
+                if (interfaceSection) interfaceSection.classList.remove('hidden');
+                if (statusBanner) statusBanner.classList.remove('hidden');
+                if (intervalInput) intervalInput.disabled = true;
+
+                updateRecordingButtons();
+                startDurationTimer({ resume: isResume });
+
                 startRecordingCycle();
-                updateStatus('Recording started', 'success');
-                
-                console.log(`🎤 Started auto-recording for topic: ${mainTopic} with ${chunkInterval/1000}s intervals`);
-                
+                updateStatus(isResume ? 'Recording resumed' : 'Recording started', 'success');
+
+                console.log(
+                    `🎤 ${isResume ? 'Resumed' : 'Started'} auto-recording for topic: ${mainTopic} with ${chunkInterval / 1000}s intervals`
+                );
+
             } catch (error) {
                 console.error('❌ Failed to start auto-recording:', error);
                 showError('Failed to start recording: ' + error.message);
                 isRecording = false;
-                
-                // Reset button visibility on error
-                document.getElementById('startRecordingBtn').classList.remove('hidden');
-                document.getElementById('stopRecordingMainBtn').classList.add('hidden');
+
+                if (stream) {
+                    stream.getTracks().forEach(track => track.stop());
+                    stream = null;
+                }
+
+                updateRecordingButtons();
             }
         }
 
@@ -967,8 +1239,9 @@
                     
                     // Update mindmap if we got new data
                     if (result.success && result.mindmapData) {
-                        currentMindmapData = result.mindmapData;
-                        renderMindmap(result.mindmapData);
+                        currentMindmapData = mergeMindmapTrees(result.mindmapData, currentMindmapData);
+                        ensureMindmapNodeIds(currentMindmapData);
+                        renderMindmap(currentMindmapData);
                         
                         // Always add to chat (even if hidden) - users can see it when they expand
                         if (result.transcript) {
@@ -1018,64 +1291,93 @@
         }
 
         function stopRecording() {
+            if (!isRecording) return;
             isRecording = false;
             
-            // Clear recording timeout
             if (recordingTimeout) {
                 clearTimeout(recordingTimeout);
                 recordingTimeout = null;
             }
             
-            // Stop media recorder
             if (mediaRecorder && mediaRecorder.state === 'recording') {
                 mediaRecorder.stop();
             }
             
-            // Stop audio stream
             if (stream) {
                 stream.getTracks().forEach(track => track.stop());
                 stream = null;
             }
             
-            // Update UI - Show/hide recording buttons
-            document.getElementById('recordingStatus').classList.add('hidden');
-            document.getElementById('startRecordingBtn').classList.remove('hidden');
-            document.getElementById('stopRecordingMainBtn').classList.add('hidden');
-            document.getElementById('continueRecordingBtn').classList.add('hidden');
+            const statusBanner = document.getElementById('recordingStatus');
+            if (statusBanner) statusBanner.classList.add('hidden');
             
-            // Re-enable controls
-            document.getElementById('intervalInput').disabled = false;
+            const intervalInput = document.getElementById('intervalInput');
+            if (intervalInput) intervalInput.disabled = false;
             
-            updateStatus('Recording stopped', 'info');
-            console.log('🎤 Stopped auto-recording');
+            updateRecordingButtons();
+            stopDurationTimer();
+            updateStatus('Recording paused', 'info');
+            console.log('🎤 Paused auto-recording');
         }
 
-        function startDurationTimer() {
-            if (durationTimer) clearInterval(durationTimer);
-            
-            sessionStartTime = new Date();
+        function updateStartTimeDisplay() {
             const sessionStartTimeEl = document.getElementById('sessionStartTime');
             if (sessionStartTimeEl) {
-                sessionStartTimeEl.textContent = sessionStartTime.toLocaleTimeString();
+                sessionStartTimeEl.textContent = sessionStartedAt
+                    ? sessionStartedAt.toLocaleTimeString()
+                    : '-';
             }
-            
-            durationTimer = setInterval(() => {
-                const now = new Date();
-                const duration = Math.floor((now - sessionStartTime) / 1000);
-                const minutes = Math.floor(duration / 60);
-                const seconds = duration % 60;
-                const sessionDurationEl = document.getElementById('sessionDuration');
-                if (sessionDurationEl) {
-                    sessionDurationEl.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-                }
-            }, 1000);
         }
 
-        function stopDurationTimer() {
+        function getSessionDurationSeconds() {
+            const activeMs = sessionActiveStartMs ? Date.now() - sessionActiveStartMs : 0;
+            const totalMs = sessionAccumulatedMs + activeMs;
+            return Math.max(0, Math.floor(totalMs / 1000));
+        }
+
+        function updateDurationDisplay() {
+            const sessionDurationEl = document.getElementById('sessionDuration');
+            if (!sessionDurationEl) return;
+            const durationSeconds = getSessionDurationSeconds();
+            const minutes = Math.floor(durationSeconds / 60);
+            const seconds = durationSeconds % 60;
+            sessionDurationEl.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+        }
+
+        function startDurationTimer({ resume = false } = {}) {
+            if (!sessionStartedAt) {
+                sessionStartedAt = new Date();
+                updateStartTimeDisplay();
+            } else if (!resume) {
+                // Reset accumulated timer when starting fresh without resume
+                sessionAccumulatedMs = 0;
+                updateStartTimeDisplay();
+            }
+
+            if (durationTimer) {
+                clearInterval(durationTimer);
+            }
+
+            sessionActiveStartMs = Date.now();
+            updateDurationDisplay();
+            durationTimer = setInterval(updateDurationDisplay, 1000);
+        }
+
+        function stopDurationTimer({ reset = false } = {}) {
             if (durationTimer) {
                 clearInterval(durationTimer);
                 durationTimer = null;
             }
+            if (sessionActiveStartMs) {
+                sessionAccumulatedMs += Date.now() - sessionActiveStartMs;
+                sessionActiveStartMs = null;
+            }
+            if (reset) {
+                sessionAccumulatedMs = 0;
+                sessionStartedAt = null;
+                updateStartTimeDisplay();
+            }
+            updateDurationDisplay();
         }
 
         async function createMindmapSession(mainTopic) {
@@ -1102,6 +1404,11 @@
                 nodeCount: 0,
                 speechCount: 0
             };
+            sessionStartedAt = new Date();
+            sessionAccumulatedMs = 0;
+            sessionActiveStartMs = null;
+            updateStartTimeDisplay();
+            updateDurationDisplay();
             
             // Safe DOM updates with null checks
             const sessionCodeEl = document.getElementById('sessionCode');
@@ -1118,9 +1425,13 @@
             
             // Initialize mindmap with main topic as root
             currentMindmapData = {
+                id: generateMindmapNodeId(),
                 name: mainTopic,
                 children: []
             };
+            ensureMindmapNodeIds(currentMindmapData);
+            mindmapLayoutMode = 'right';
+            mindmapSelectedNodePath = null;
             
             // Render initial mindmap with topic as root
             renderMindmap(currentMindmapData);
@@ -1131,6 +1442,7 @@
             if (chatInput) chatInput.disabled = false;
             if (sendBtn) sendBtn.disabled = false;
             
+            updateRecordingButtons();
             console.log('✅ Created mindmap session:', sessionCode, 'with topic:', mainTopic);
         }
 
@@ -1145,40 +1457,9 @@
         }
 
         function resetSession() {
-            if (!currentSession) {
-                showError('No active session to reset.');
-                return;
-            }
-
-            const confirmed = window.confirm('Are you sure you want to reset this session? This will clear all current progress and start fresh with the same topic.');
+            const confirmed = window.confirm('Restart this mindmap session? The page will refresh and any current progress will be lost.');
             if (!confirmed) return;
-
-            const mainTopic = currentSession.mainTopic;
-            
-            // Stop recording if active
-            if (isRecording) {
-                stopRecording();
-            }
-            
-            // Stop duration timer
-            stopDurationTimer();
-            
-            // Clear current session data
-            currentMindmapData = null;
-            chatHistory = [];
-            
-            // Reset UI state but keep the interface open
-            document.getElementById('chatMessages').innerHTML = `
-                <div class="text-center text-gray-500 py-8">
-                    <i data-lucide="message-square-plus" class="w-8 h-8 mx-auto mb-2 opacity-50"></i>
-                    <p class="text-sm">AI processing logs will appear here when you speak!</p>
-                </div>
-            `;
-            
-            // Create new session with same topic
-            createMindmapSession(mainTopic);
-            
-            lucide.createIcons();
+            window.location.reload();
         }
 
         async function saveSession() {
@@ -1189,8 +1470,7 @@
 
             try {
                 // Calculate session duration
-                const duration = sessionStartTime ? 
-                    Math.floor((new Date() - sessionStartTime) / 1000) : 0;
+                const duration = getSessionDurationSeconds();
                 
                 // Count nodes in mindmap
                 const nodeCount = countNodes(currentMindmapData);
@@ -1199,7 +1479,7 @@
                 const sessionMetadata = {
                     sessionCode: currentSession.code,
                     mainTopic: currentSession.mainTopic,
-                    startTime: sessionStartTime?.toISOString() || new Date().toISOString(),
+                    startTime: sessionStartedAt?.toISOString() || new Date().toISOString(),
                     endTime: new Date().toISOString(),
                     duration: duration,
                     durationFormatted: formatDuration(duration),
@@ -1241,11 +1521,12 @@
                 console.error('❌ Error saving session:', error);
                 
                 // Fallback: just download the file
+                const fallbackDuration = getSessionDurationSeconds();
                 const sessionMetadata = {
                     sessionCode: currentSession.code,
                     mainTopic: currentSession.mainTopic,
-                    startTime: sessionStartTime?.toISOString() || new Date().toISOString(),
-                    duration: sessionStartTime ? Math.floor((new Date() - sessionStartTime) / 1000) : 0,
+                    startTime: sessionStartedAt?.toISOString() || new Date().toISOString(),
+                    duration: fallbackDuration,
                     mindmapData: currentMindmapData,
                     chatHistory: chatHistory,
                     savedAt: new Date().toISOString(),
@@ -1339,10 +1620,11 @@
                 }
 
                 // Update current mindmap data
-                currentMindmapData = result.data;
+                currentMindmapData = mergeMindmapTrees(result.data, currentMindmapData);
+                ensureMindmapNodeIds(currentMindmapData);
 
                 // Re-render mindmap
-                renderMindmap(result.data);
+                renderMindmap(currentMindmapData);
 
                 // Always add AI response to chat (even if hidden)
                 addChatMessage('ai', result.message || 'Mindmap updated successfully!', result.rawAiResponse);
@@ -1386,23 +1668,24 @@
             }
             
             // Stop duration timer
-            stopDurationTimer();
+            stopDurationTimer({ reset: true });
             
             document.getElementById('mainTopicInput').value = '';
             document.getElementById('initialTextInput').value = '';
+            setInitialTextCollapsed(true);
             document.getElementById('setupSection').classList.remove('hidden');
             document.getElementById('mindmapInterface').classList.add('hidden');
-            document.getElementById('recordingStatus').classList.add('hidden');
-            document.getElementById('continueRecordingBtn').classList.add('hidden');
+            const statusBanner = document.getElementById('recordingStatus');
+            if (statusBanner) statusBanner.classList.add('hidden');
             document.getElementById('chatPanel').classList.add('hidden');
             document.getElementById('sessionInfoBar').classList.add('hidden');
-            
-            // Reset recording UI - Show start button, hide stop button
-            document.getElementById('startRecordingBtn').classList.remove('hidden');
-            document.getElementById('stopRecordingMainBtn').classList.add('hidden');
-            document.getElementById('intervalInput').disabled = false;
-            document.getElementById('intervalInput').value = '20';
-            updateInterval(); // Update the interval display
+
+            const intervalInput = document.getElementById('intervalInput');
+            if (intervalInput) {
+                intervalInput.disabled = false;
+                intervalInput.value = '20';
+            }
+            updateInterval();
             
             // Reset chat
             document.getElementById('chatMessages').innerHTML = `
@@ -1419,7 +1702,6 @@
             currentSession = null;
             currentMindmapData = null;
             chatHistory = [];
-            sessionStartTime = null;
             selectedMindmapPromptId = null;
             highlightMindmapPrompt(null);
             
@@ -1431,17 +1713,22 @@
             document.getElementById('sendBtn').disabled = true;
             updateStatus('Ready', 'info');
             lucide.createIcons();
+
+            mindmapSelectedNodePath = null;
+            clearMindmapSelection();
+            updateRecordingButtons();
         }
 
         async function generateInitialMindmap() {
             const mainTopic = document.getElementById('mainTopicInput').value.trim();
-            const initialText = document.getElementById('initialTextInput').value.trim();
+            const initialTextField = document.getElementById('initialTextInput');
+            const initialText = initialTextField ? initialTextField.value.trim() : '';
             const generateBtn = document.getElementById('generateBtn');
             const loadingIndicator = document.getElementById('loadingIndicator');
             const errorMessage = document.getElementById('errorMessage');
 
-            if (!mainTopic || !initialText) {
-                showError('Please enter both a main topic and initial text.');
+            if (!mainTopic) {
+                showError('Please enter a main topic.');
                 return;
             }
 
@@ -1468,38 +1755,49 @@
                     throw new Error(err?.error || err?.message || 'Failed to create session');
                 }
 
-                // Generate initial mindmap
                 let initialMindmap = null;
-                let initialMessages = [];
+                const initialMessages = [];
 
-                if (initialText) {
-                    const generateResponse = await fetch(`${API_BASE_URL}/api/mindmap/generate`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ 
-                            sessionCode, 
-                            text: initialText 
-                        })
-                    });
+                const seedText = initialText || `MAIN TOPIC: ${mainTopic}
 
-                    const result = await generateResponse.json();
-                    if (!generateResponse.ok) {
-                        throw new Error(result.error || 'Failed to generate mindmap');
-                    }
-                    initialMindmap = result.data;
-                    initialMessages.push({ role: 'user', text: initialText });
-                    initialMessages.push({ role: 'ai', text: 'Initial mindmap generated! You can now add more information using the chat below.' });
-                } else {
-                    initialMindmap = {
-                        name: mainTopic,
-                        children: []
-                    };
-                    initialMessages.push({ role: 'ai', text: 'Mindmap ready. Start recording or add ideas via chat to grow this map.' });
+Create a mindmap outline for this topic with 3-5 major branches and brief supporting details for each branch.`;
+
+                const generateResponse = await fetch(`${API_BASE_URL}/api/mindmap/generate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        sessionCode, 
+                        text: seedText 
+                    })
+                });
+
+                const result = await generateResponse.json();
+                if (!generateResponse.ok) {
+                    throw new Error(result.error || 'Failed to generate mindmap');
                 }
 
+                initialMindmap = result.data;
+                ensureMindmapNodeIds(initialMindmap);
+                if (initialText) {
+                    initialMessages.push({ role: 'user', text: initialText });
+                }
+                initialMessages.push({ 
+                    role: 'ai', 
+                    text: initialText 
+                        ? 'Initial mindmap generated! You can now add more information using the chat below.' 
+                        : 'Mindmap seeded with starter branches. Add transcript snippets or use the mic to enrich it further.'
+                });
+
                 currentSession = { code: sessionCode, mainTopic };
+                sessionStartedAt = new Date();
+                sessionAccumulatedMs = 0;
+                sessionActiveStartMs = null;
+                updateStartTimeDisplay();
+                updateDurationDisplay();
                 currentMindmapData = initialMindmap;
+                ensureMindmapNodeIds(currentMindmapData);
                 document.getElementById('sessionCode').textContent = sessionCode;
+                updateRecordingButtons();
 
                 document.getElementById('setupSection').classList.add('hidden');
                 document.getElementById('mindmapInterface').classList.remove('hidden');
@@ -1566,10 +1864,11 @@
                 }
 
                 // Update current mindmap data
-                currentMindmapData = result.data;
+                currentMindmapData = mergeMindmapTrees(result.data, currentMindmapData);
+                ensureMindmapNodeIds(currentMindmapData);
 
                 // Re-render mindmap
-                renderMindmap(result.data);
+                renderMindmap(currentMindmapData);
 
                 // Add AI response to chat with collapsible raw output
                 addChatMessage('ai', result.message, result.rawAiResponse);
@@ -1724,33 +2023,487 @@
         }
 
         
-function renderMindmap(data) {
+        function initializeMindmapEditor() {
+            if (mindmapEditorInitialized) return;
+            mindmapEditorInitialized = true;
+
+            if (mindmapGenerateExamplesBtn) {
+                mindmapGenerateExamplesBtn.addEventListener('click', handleMindmapGenerateExamples);
+            }
+            if (mindmapDeleteNodeBtn) {
+                mindmapDeleteNodeBtn.addEventListener('click', handleMindmapDeleteNode);
+            }
+            if (mindmapLayoutRightBtn && mindmapLayoutBothBtn) {
+                mindmapLayoutRightBtn.addEventListener('click', () => setMindmapLayoutMode('right'));
+                mindmapLayoutBothBtn.addEventListener('click', () => setMindmapLayoutMode('both'));
+                updateMindmapLayoutToggle();
+            }
+
+            clearMindmapSelection();
+        }
+
+        function setMindmapLayoutMode(mode) {
+            if (!['right', 'both'].includes(mode)) return;
+            if (mindmapLayoutMode === mode) return;
+            mindmapLayoutMode = mode;
+            updateMindmapLayoutToggle();
+            if (currentMindmapData) {
+                renderMindmap(currentMindmapData);
+            }
+        }
+
+        function updateMindmapLayoutToggle() {
+            if (mindmapLayoutRightBtn) {
+                const isActive = mindmapLayoutMode === 'right';
+                mindmapLayoutRightBtn.classList.toggle('accent', isActive);
+                mindmapLayoutRightBtn.classList.toggle('neutral', !isActive);
+                mindmapLayoutRightBtn.setAttribute('aria-pressed', String(isActive));
+            }
+            if (mindmapLayoutBothBtn) {
+                const isActive = mindmapLayoutMode === 'both';
+                mindmapLayoutBothBtn.classList.toggle('accent', isActive);
+                mindmapLayoutBothBtn.classList.toggle('neutral', !isActive);
+                mindmapLayoutBothBtn.setAttribute('aria-pressed', String(isActive));
+            }
+            if (mindmapSidebarMode) {
+                mindmapSidebarMode.textContent = `Mode: ${mindmapLayoutMode === 'both' ? 'both sides' : 'right only'}`;
+            }
+        }
+
+        function setMindmapSidebarDisabled(disabled) {
+            if (!mindmapSidebarActions) return;
+            if (disabled) {
+                mindmapSidebarActions.classList.add('opacity-50', 'pointer-events-none');
+            } else {
+                mindmapSidebarActions.classList.remove('opacity-50', 'pointer-events-none');
+            }
+        }
+
+        function normalizeMindmapLabel(text) {
+            if (typeof text !== 'string') return '';
+            let cleaned = text.trim();
+            cleaned = cleaned.replace(/^["'`]+|["'`]+$/g, '');
+            cleaned = cleaned.replace(/^\d+[\s\.\)\-:]*\s*/, '');
+            cleaned = cleaned.replace(/^[\-*•]+\s*/, '');
+            cleaned = cleaned.replace(/\s+/g, ' ');
+            return cleaned.trim();
+        }
+
+        function assignPathsToMindmap(node, pathSegments = []) {
+            if (!node) return;
+            const fullPath = pathSegments.length ? `root.${pathSegments.join('.')}` : 'root';
+            node._path = fullPath;
+            (node.children || []).forEach((child, idx) => assignPathsToMindmap(child, [...pathSegments, idx]));
+        }
+
+        function assignBranchesToMindmap(node, branch = 1) {
+            if (!node) return;
+            node._branch = branch;
+            (node.children || []).forEach((child, idx) => {
+                const childBranch = mindmapLayoutMode === 'both'
+                    ? (node === currentMindmapData ? (idx % 2 === 0 ? 1 : -1) : branch)
+                    : 1;
+                assignBranchesToMindmap(child, childBranch);
+            });
+        }
+
+        function getMindmapContextPath(pathStr) {
+            if (!currentMindmapData) return [];
+            const names = [];
+            let node = currentMindmapData;
+            if (!node) return names;
+            if (node.name) {
+                names.push(node.name);
+            }
+            if (!pathStr || pathStr === 'root') {
+                return names;
+            }
+            const segments = pathStr.split('.').slice(1).map(Number);
+            for (const idx of segments) {
+                if (!node.children || !node.children[idx]) break;
+                node = node.children[idx];
+                if (node.name) {
+                    names.push(node.name);
+                }
+            }
+            return names;
+        }
+
+        function normalizeNodeName(name) {
+            return (name || '').trim().toLowerCase();
+        }
+
+        function deepCloneNode(node) {
+            if (typeof structuredClone === 'function') {
+                return structuredClone(node);
+            }
+            return JSON.parse(JSON.stringify(node));
+        }
+
+        function mergeMindmapTrees(serverNode, localNode) {
+            if (!serverNode && !localNode) return null;
+            if (!serverNode) {
+                const localClone = deepCloneNode(localNode);
+                ensureMindmapNodeIds(localClone);
+                return localClone;
+            }
+            if (!localNode) {
+                const serverClone = deepCloneNode(serverNode);
+                ensureMindmapNodeIds(serverClone);
+                return serverClone;
+            }
+
+            const primary = deepCloneNode(serverNode);
+            const secondary = deepCloneNode(localNode);
+
+            ensureMindmapNodeIds(primary);
+            ensureMindmapNodeIds(secondary);
+
+            const merged = { ...primary };
+
+            if (primary.id && secondary.id && primary.id === secondary.id) {
+                merged.name = secondary.name || primary.name;
+                merged.type = secondary.type || primary.type;
+                if (secondary._offset) {
+                    merged._offset = { ...primary._offset, ...secondary._offset };
+                }
+            } else if (!primary.id && secondary.id) {
+                merged.id = secondary.id;
+            }
+
+            const serverChildren = Array.isArray(primary.children) ? primary.children : [];
+            const localChildren = Array.isArray(secondary.children) ? secondary.children : [];
+
+            const localMap = new Map();
+            localChildren.forEach((child, index) => {
+                const key = getMindmapNodeKey(child) || `fallback:${index}`;
+                if (!localMap.has(key)) {
+                    localMap.set(key, []);
+                }
+                localMap.get(key).push(child);
+            });
+
+            const mergedChildren = [];
+
+            serverChildren.forEach((child, index) => {
+                const key = getMindmapNodeKey(child) || `server:${index}`;
+                let matched = null;
+                if (localMap.has(key)) {
+                    const bucket = localMap.get(key);
+                    matched = bucket.shift();
+                    if (bucket.length === 0) {
+                        localMap.delete(key);
+                    }
+                }
+                mergedChildren.push(mergeMindmapTrees(child, matched));
+            });
+
+            localMap.forEach(bucket => {
+                bucket.forEach(child => {
+                    mergedChildren.push(mergeMindmapTrees(null, child));
+                });
+            });
+
+            merged.children = mergedChildren;
+
+            return merged;
+        }
+
+        async function syncMindmapState(reason = 'manual_update', metadata = {}) {
+            if (!currentSession || !currentMindmapData) return null;
+            try {
+                ensureMindmapNodeIds(currentMindmapData);
+                const response = await fetch(`${API_BASE_URL}/api/mindmap/manual-update`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        sessionCode: currentSession.code,
+                        mainTopic: currentSession.mainTopic,
+                        mindmapData: currentMindmapData,
+                        reason,
+                        metadata
+                    })
+                });
+
+                const text = await response.text();
+                let payload = {};
+                if (text) {
+                    try {
+                        payload = JSON.parse(text);
+                    } catch (_) {
+                        payload = {};
+                    }
+                }
+
+                if (!response.ok) {
+                    throw new Error(payload?.error || response.statusText);
+                }
+
+                return payload;
+            } catch (error) {
+                console.error('❌ Failed to sync mindmap update:', error);
+                updateStatus('Manual update saved locally; sync failed', 'error');
+                return null;
+            }
+        }
+
+        function getMindmapNodeByPath(pathStr) {
+            if (!pathStr || pathStr === 'root') return currentMindmapData;
+            const segments = pathStr.split('.').slice(1).map(Number);
+            let node = currentMindmapData;
+            for (const idx of segments) {
+                if (!node || !node.children || !node.children[idx]) return null;
+                node = node.children[idx];
+            }
+            return node;
+        }
+
+        function clearMindmapSelection(options = {}) {
+            const { preserveExamples = false } = options;
+            mindmapSelectedNodePath = null;
+            if (mindmapSidebarHint) mindmapSidebarHint.classList.remove('hidden');
+            if (mindmapSidebarSelected) mindmapSidebarSelected.classList.add('hidden');
+            if (mindmapSidebarContext) mindmapSidebarContext.textContent = '';
+            if (mindmapSidebarExamples && !preserveExamples) {
+                mindmapSidebarExamples.innerHTML = '<p class="text-xs text-slate-500">Generated examples will appear here.</p>';
+            }
+            setMindmapSidebarDisabled(true);
+            if (mindmapSvgSelection) {
+                mindmapSvgSelection.selectAll('.mindmap-node circle').classed('node-selected', false);
+            }
+        }
+
+        function updateMindmapSidebar(node) {
+            if (!node) return;
+            if (mindmapSidebarHint) mindmapSidebarHint.classList.add('hidden');
+            if (mindmapSidebarSelected) mindmapSidebarSelected.classList.remove('hidden');
+            if (mindmapSidebarNodeLabel) mindmapSidebarNodeLabel.textContent = node.name || 'Untitled node';
+            if (mindmapSidebarContext) {
+                const strand = getMindmapContextPath(node._path);
+                mindmapSidebarContext.textContent = strand.length
+                    ? `AI context: ${strand.join(' › ')}`
+                    : 'AI context: root topic';
+            }
+            if (mindmapSidebarExamples) {
+                mindmapSidebarExamples.innerHTML = '<p class="text-xs text-slate-500">Use “Generate examples” to explore ideas.</p>';
+            }
+            setMindmapSidebarDisabled(false);
+        }
+
+        function displayMindmapExamples(items, headerText) {
+            if (!mindmapSidebarExamples) return;
+            const safeItems = (items || []).map(normalizeMindmapLabel).filter(Boolean);
+            const header = headerText ? `<p class="text-xs font-semibold text-slate-600 mb-2">${headerText}</p>` : '';
+            const body = safeItems.length
+                ? safeItems.map(item => `<div class="text-xs text-slate-600">• ${item}</div>`).join('')
+                : '<p class="text-xs text-slate-500">No examples generated.</p>';
+            mindmapSidebarExamples.innerHTML = header + body;
+        }
+
+        function ensureMindmapSelectionStillExists() {
+            if (!mindmapSelectedNodePath) {
+                clearMindmapSelection();
+                return;
+            }
+            const node = getMindmapNodeByPath(mindmapSelectedNodePath);
+            if (!node) {
+                clearMindmapSelection();
+            } else {
+                updateMindmapSidebar(node);
+                if (mindmapSvgSelection) {
+                    mindmapSvgSelection.selectAll('.mindmap-node circle').classed('node-selected', false);
+                    mindmapSvgSelection.selectAll('.mindmap-node')
+                        .filter(d => d.data && d.data._path === mindmapSelectedNodePath)
+                        .select('circle')
+                        .classed('node-selected', true);
+                }
+            }
+        }
+
+        function focusMindmapNode(hierarchyNode) {
+            if (!hierarchyNode || !hierarchyNode.data) return;
+            mindmapSelectedNodePath = hierarchyNode.data._path;
+            updateMindmapSidebar(hierarchyNode.data);
+            if (mindmapSvgSelection) {
+                mindmapSvgSelection.selectAll('.mindmap-node circle').classed('node-selected', false);
+                mindmapSvgSelection.selectAll('.mindmap-node')
+                    .filter(d => d.data && d.data._path === mindmapSelectedNodePath)
+                    .select('circle')
+                    .classed('node-selected', true);
+            }
+        }
+
+        async function handleMindmapGenerateExamples() {
+            if (!mindmapSelectedNodePath || !currentMindmapData) return;
+            const node = getMindmapNodeByPath(mindmapSelectedNodePath);
+            if (!node) return;
+            const count = parseInt(mindmapExampleCountInput?.value, 10) || 2;
+            const strand = getMindmapContextPath(mindmapSelectedNodePath);
+            if (mindmapGenerateExamplesBtn) {
+                mindmapGenerateExamplesBtn.disabled = true;
+                mindmapGenerateExamplesBtn.textContent = '⚡ Generating...';
+            }
+            try {
+                const examples = await generateExamplesWithOpenAI(node.name, count, strand);
+                const sanitized = (Array.isArray(examples) ? examples : [])
+                    .map(normalizeMindmapLabel)
+                    .filter(Boolean);
+                if (!sanitized.length) {
+                    throw new Error('No examples generated');
+                }
+                node.children = Array.isArray(node.children) ? node.children : [];
+                sanitized.forEach(example => node.children.push({ id: generateMindmapNodeId(), name: example, children: [] }));
+                ensureMindmapNodeIds(node);
+                ensureMindmapNodeIds(currentMindmapData);
+                mindmapSelectedNodePath = null;
+                renderMindmap(currentMindmapData);
+                displayMindmapExamples(sanitized, `Added ${sanitized.length} example${sanitized.length === 1 ? '' : 's'}`);
+                const syncResult = await syncMindmapState('node_examples', {
+                    parent: node.name,
+                    added: sanitized
+                });
+                if (syncResult) {
+                    updateStatus(`Added ${sanitized.length} example${sanitized.length === 1 ? '' : 's'} to mindmap`, 'success');
+                }
+                clearMindmapSelection({ preserveExamples: true });
+            } catch (error) {
+                console.error('Error generating examples:', error);
+                if (mindmapSidebarExamples) {
+                    mindmapSidebarExamples.innerHTML = '<p class="text-xs text-rose-500">Error generating examples. Please try again.</p>';
+                }
+            } finally {
+                if (mindmapGenerateExamplesBtn) {
+                    mindmapGenerateExamplesBtn.disabled = false;
+                    mindmapGenerateExamplesBtn.textContent = '⚡ Generate examples';
+                }
+            }
+        }
+
+        async function handleMindmapDeleteNode() {
+            if (!mindmapSelectedNodePath || mindmapSelectedNodePath === 'root' || !currentMindmapData) return;
+            const parts = mindmapSelectedNodePath.split('.');
+            const parentPath = parts.slice(0, -1).join('.');
+            const parent = getMindmapNodeByPath(parentPath);
+            if (!parent || !parent.children) return;
+            const index = parseInt(parts[parts.length - 1], 10);
+            if (Number.isNaN(index)) return;
+            const [removedNode] = parent.children.splice(index, 1);
+            mindmapSelectedNodePath = null;
+            renderMindmap(currentMindmapData);
+            clearMindmapSelection();
+            const syncResult = await syncMindmapState('node_removed', {
+                removed: removedNode?.name || null,
+                parent: parent?.name || null
+            });
+            if (syncResult) {
+                updateStatus('Node removed from mindmap', 'info');
+            }
+        }
+
+        async function generateExamplesWithOpenAI(topic, count = 2, strand = []) {
+            const response = await fetch('/api/generate-examples', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ topic, count, strand })
+            });
+            if (!response.ok) {
+                throw new Error('Failed to generate examples');
+            }
+            const result = await response.json();
+            if (!Array.isArray(result)) {
+                throw new Error('Unexpected response format');
+            }
+            return result;
+        }
+
+        function loadMindmapExample() {
+            currentMindmapData = {
+                id: generateMindmapNodeId(),
+                name: 'Why is Educational Technology Important?',
+                children: [
+                    {
+                        id: generateMindmapNodeId(),
+                        name: 'Accessibility and Inclusion',
+                        children: [
+                            {
+                                id: generateMindmapNodeId(),
+                                name: 'Assistive technologies',
+                                children: [
+                                    { id: generateMindmapNodeId(), name: 'Screen readers and text-to-speech', children: [] },
+                                    { id: generateMindmapNodeId(), name: 'Voice recognition software', children: [] },
+                                    { id: generateMindmapNodeId(), name: 'Adaptive keyboards and mice', children: [] }
+                                ]
+                            },
+                            {
+                                id: generateMindmapNodeId(),
+                                name: 'Universal design for learning',
+                                children: [
+                                    { id: generateMindmapNodeId(), name: 'Multiple representation formats', children: [] },
+                                    { id: generateMindmapNodeId(), name: 'Flexible engagement options', children: [] },
+                                    { id: generateMindmapNodeId(), name: 'Customizable learning environments', children: [] }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        id: generateMindmapNodeId(),
+                        name: 'Enhanced Learning Experience',
+                        children: [
+                            { id: generateMindmapNodeId(), name: 'Interactive multimedia content', children: [] },
+                            { id: generateMindmapNodeId(), name: 'Gamified lessons', children: [] }
+                        ]
+                    }
+                ]
+            };
+            ensureMindmapNodeIds(currentMindmapData);
+            mindmapSelectedNodePath = null;
+            renderMindmap(currentMindmapData);
+        }
+
+        function resetMindmapStructure() {
+            const rootName = currentMindmapData?.name || document.getElementById('currentTopic')?.textContent || 'Lesson Topic';
+            currentMindmapData = { id: generateMindmapNodeId(), name: rootName, children: [] };
+            ensureMindmapNodeIds(currentMindmapData);
+            mindmapSelectedNodePath = null;
+            renderMindmap(currentMindmapData);
+        }
+
+        function renderMindmap(data) {
     if (!data) {
         console.error('No data to render');
         return;
     }
 
+    ensureMindmapNodeIds(data);
+
     const container = document.getElementById('mindmapContainer');
     if (!container) return;
 
+    assignPathsToMindmap(data);
+    assignBranchesToMindmap(data, 1);
+    updateMindmapLayoutToggle();
+
     const width = container.clientWidth || 800;
     const height = container.clientHeight || 480;
-    const horizontalMargin = 160;
-    const verticalOffset = 60;
+    const horizontalMargin = mindmapLayoutMode === 'both' ? 150 : 190;
+    const verticalOffset = 100;
+    const verticalSpacing = 80;
+    const horizontalSpacing = mindmapLayoutMode === 'both' ? 240 : 280;
 
     container.innerHTML = '';
 
-    const svg = d3.select(container)
+    mindmapSvgSelection = d3.select(container)
         .append('svg')
         .attr('class', 'mindmap-svg')
         .attr('width', width)
         .attr('height', height);
 
+    const svg = mindmapSvgSelection;
     const g = svg.append('g').attr('class', 'mindmap-tree');
 
     const treeLayout = d3.tree()
-        .nodeSize([40, 200])
-        .separation((a, b) => (a.parent === b.parent ? 1.4 : 1.8));
+        .nodeSize([verticalSpacing, horizontalSpacing])
+        .separation((a, b) => (a.parent === b.parent ? 1.8 : 2.4));
 
     const root = d3.hierarchy(data);
     treeLayout(root);
@@ -1760,9 +2513,23 @@ function renderMindmap(data) {
     });
 
     function nodeCoords(node) {
+        const offset = node._offset || { x: 0, y: 0 };
+        if (mindmapLayoutMode === 'both') {
+            const branch = node.data._branch || 1;
+            if (node.depth === 0) {
+                return {
+                    x: width / 2 + offset.x,
+                    y: node.x + verticalOffset + offset.y
+                };
+            }
+            return {
+                x: width / 2 + branch * (node.y + horizontalMargin) + offset.x,
+                y: node.x + verticalOffset + offset.y
+            };
+        }
         return {
-            x: node.y + horizontalMargin + (node._offset?.x || 0),
-            y: node.x + verticalOffset + (node._offset?.y || 0)
+            x: node.y + horizontalMargin + offset.x,
+            y: node.x + verticalOffset + offset.y
         };
     }
 
@@ -1842,8 +2609,8 @@ function renderMindmap(data) {
                     .attr('font-size', d.depth === 0 ? '14px' : '12px')
                     .attr('text-anchor', d.depth === 0 ? 'middle' : 'start');
 
-                const lineHeight = 16;
-                const startX = d.depth === 0 ? 0 : 28;
+                const lineHeight = 18;
+                const startX = d.depth === 0 ? 0 : 32;
                 const startY = d.depth === 0
                     ? -(lines.length * lineHeight) - 28
                     : -((lines.length - 1) / 2) * lineHeight;
@@ -1856,8 +2623,9 @@ function renderMindmap(data) {
                 });
             });
 
-    labelGroup.on('click', (event, d) => {
+    labelGroup.on('click', function(event, d) {
         event.stopPropagation();
+        focusMindmapNode(d);
         showFullText(d.data.name, event);
     });
 
@@ -1885,34 +2653,106 @@ function renderMindmap(data) {
 
     node.call(drag);
 
-    const zoom = d3.zoom()
+    node.on('click', function(event, d) {
+        event.stopPropagation();
+        focusMindmapNode(d);
+    });
+
+    svg.on('click', () => {
+        clearMindmapSelection();
+    });
+
+    if (mindmapSelectedNodePath) {
+        ensureMindmapSelectionStillExists();
+    } else if (mindmapSvgSelection) {
+        mindmapSvgSelection.selectAll('.mindmap-node circle').classed('node-selected', false);
+    }
+
+    mindmapZoomBehavior = d3.zoom()
         .scaleExtent([0.5, 2.2])
         .on('zoom', (event) => {
+            mindmapCurrentZoomTransform = event.transform;
             g.attr('transform', event.transform);
         });
 
-    svg.call(zoom);
+    svg.call(mindmapZoomBehavior);
+
+    function computeContentBounds() {
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+
+        g.selectAll('.mindmap-node').each(function(d) {
+            const p = nodeCoords(d);
+            const r = (d.depth === 0) ? 18 : (d.depth === 1 ? 14 : (d.depth === 2 ? 12 : 10));
+            minX = Math.min(minX, p.x - r);
+            maxX = Math.max(maxX, p.x + r);
+            minY = Math.min(minY, p.y - r);
+            maxY = Math.max(maxY, p.y + r);
+
+            const label = d3.select(this).select('text');
+            if (!label.empty()) {
+                try {
+                    const bbox = label.node().getBBox();
+                    minX = Math.min(minX, p.x + bbox.x);
+                    maxX = Math.max(maxX, p.x + bbox.x + bbox.width);
+                    minY = Math.min(minY, p.y + bbox.y);
+                    maxY = Math.max(maxY, p.y + bbox.y + bbox.height);
+                } catch (_) {
+                    // ignore measurement errors
+                }
+            }
+
+            // Also include drag offsets if any (already applied in nodeCoords)
+        });
+
+        if (!isFinite(minX) || !isFinite(maxX) || !isFinite(minY) || !isFinite(maxY)) {
+            return null;
+        }
+
+        return {
+            minX,
+            maxX,
+            minY,
+            maxY,
+            width: Math.max(1, maxX - minX),
+            height: Math.max(1, maxY - minY)
+        };
+    }
 
     const fitToView = (animate = true) => {
-        const bounds = g.node().getBBox();
-        if (!bounds.width || !bounds.height) return;
+        const bounds = computeContentBounds();
+        if (!bounds) return;
 
-        const fullWidth = width;
-        const fullHeight = height;
-        const scale = Math.max(0.5, Math.min(1.3, 0.85 / Math.max(bounds.width / fullWidth, bounds.height / fullHeight)));
-        const midX = bounds.x + bounds.width / 2;
-        const midY = bounds.y + bounds.height / 2;
-        const translate = [fullWidth / 2 - scale * midX, fullHeight / 2 - scale * midY];
-        const transform = d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale);
+        const PADDING = 140;
+        const targetW = Math.max(50, width - PADDING * 2);
+        const targetH = Math.max(50, height - PADDING * 2);
+
+        let scale = Math.min(targetW / bounds.width, targetH / bounds.height);
+        scale = Math.max(0.5, Math.min(1.2, scale));
+
+        const centerX = bounds.minX + bounds.width / 2;
+        const centerY = bounds.minY + bounds.height / 2;
+        const translateX = width / 2 - scale * centerX;
+        const translateY = height / 2 - scale * centerY;
+        const transform = d3.zoomIdentity.translate(translateX, translateY).scale(scale);
 
         if (animate) {
-            svg.transition().duration(600).call(zoom.transform, transform);
+            svg.transition().duration(600).call(mindmapZoomBehavior.transform, transform);
         } else {
-            svg.call(zoom.transform, transform);
+            svg.call(mindmapZoomBehavior.transform, transform);
+        }
+        mindmapLastFitTransform = transform;
+        mindmapCurrentZoomTransform = transform;
+    };
+
+    const applyInitialView = () => {
+        if (mindmapCurrentZoomTransform) {
+            svg.call(mindmapZoomBehavior.transform, mindmapCurrentZoomTransform);
+        } else {
+            setTimeout(() => fitToView(true), 60);
         }
     };
 
-    setTimeout(() => fitToView(true), 60);
+    applyInitialView();
 
     currentMindmapVis = { fitToView };
     container.__mindmapVisualization = currentMindmapVis;

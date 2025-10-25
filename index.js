@@ -8,7 +8,6 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
 import multer from "multer";
-import Groq from "groq-sdk";
 import { createSupabaseDb } from "./supabase/db.js";
 import { supabase } from "./supabase/supabaseClient.js";
 import { createTranscriptRecord, createSummaryUpdateFields } from "./lib/transcriptBuilders.js";
@@ -23,11 +22,9 @@ const elevenlabs = new ElevenLabsClient({
   apiKey: process.env.ELEVENLABS_KEY,
 });
 
-let groqClient = null;
-if (process.env.GROQ_API_KEY) {
-  groqClient = new Groq({ apiKey: process.env.GROQ_API_KEY });
-} else {
-  console.warn("⚠️ GROQ_API_KEY not set; mindmap generation will be unavailable.");
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.OPENAI_KEY || null;
+if (!OPENAI_API_KEY) {
+  console.warn("⚠️ OPENAI_API_KEY not set; mindmap generation features will be unavailable.");
 }
 
 // Session state management
@@ -90,7 +87,11 @@ async function getMindmapData(sessionCode) {
       return null;
     }
     
-    return session.mindmap_data || null;
+    const data = session.mindmap_data ? structuredClone(session.mindmap_data) : null;
+    if (data) {
+      ensureMindmapNodeIds(data);
+    }
+    return data;
   } catch (error) {
     console.error(`❌ Error retrieving mindmap data for session ${sessionCode}:`, error);
     return null;
@@ -114,6 +115,102 @@ function computeTranscriptStats(segments = []) {
   }
 
   return base;
+}
+
+function generateMindmapNodeId() {
+  return uuid();
+}
+
+function ensureMindmapNodeIds(node) {
+  if (!node || typeof node !== "object") return;
+  if (!node.id) {
+    node.id = generateMindmapNodeId();
+  }
+  if (!Array.isArray(node.children)) {
+    node.children = [];
+  }
+  node.children.forEach(child => ensureMindmapNodeIds(child));
+}
+
+function normalizeMindmapName(name) {
+  return (name || "").trim().toLowerCase();
+}
+
+function getMindmapNodeKey(node, fallbackIndex) {
+  if (!node) return fallbackIndex != null ? `fallback:${fallbackIndex}` : null;
+  if (node.id) return `id:${node.id}`;
+  const normalized = normalizeMindmapName(node.name);
+  if (normalized) return `name:${normalized}`;
+  return fallbackIndex != null ? `fallback:${fallbackIndex}` : null;
+}
+
+function mergeLegacyMindmapTrees(primaryNode, secondaryNode) {
+  if (!primaryNode && !secondaryNode) return null;
+  if (!primaryNode) {
+    const clone = structuredClone(secondaryNode);
+    ensureMindmapNodeIds(clone);
+    return clone;
+  }
+  if (!secondaryNode) {
+    const clone = structuredClone(primaryNode);
+    ensureMindmapNodeIds(clone);
+    return clone;
+  }
+
+  const base = structuredClone(primaryNode);
+  const secondary = structuredClone(secondaryNode);
+
+  ensureMindmapNodeIds(base);
+  ensureMindmapNodeIds(secondary);
+
+  const merged = { ...base };
+
+  if (base.id && secondary.id && base.id === secondary.id) {
+    merged.name = secondary.name || base.name;
+    merged.type = secondary.type || base.type;
+    if (secondary._offset) {
+      merged._offset = { ...base._offset, ...secondary._offset };
+    }
+  } else if (!base.id && secondary.id) {
+    merged.id = secondary.id;
+  }
+
+  const baseChildren = Array.isArray(base.children) ? base.children : [];
+  const secondaryChildren = Array.isArray(secondary.children) ? secondary.children : [];
+
+  const secondaryMap = new Map();
+  secondaryChildren.forEach((child, index) => {
+    const key = getMindmapNodeKey(child, index);
+    if (!secondaryMap.has(key)) {
+      secondaryMap.set(key, []);
+    }
+    secondaryMap.get(key).push(child);
+  });
+
+  const mergedChildren = [];
+
+  baseChildren.forEach((child, index) => {
+    const key = getMindmapNodeKey(child, index);
+    let match = null;
+    if (secondaryMap.has(key)) {
+      const bucket = secondaryMap.get(key);
+      match = bucket.shift();
+      if (bucket.length === 0) {
+        secondaryMap.delete(key);
+      }
+    }
+    mergedChildren.push(mergeLegacyMindmapTrees(child, match));
+  });
+
+  secondaryMap.forEach(bucket => {
+    bucket.forEach(child => {
+      mergedChildren.push(mergeLegacyMindmapTrees(null, child));
+    });
+  });
+
+  merged.children = mergedChildren;
+
+  return merged;
 }
 
 function extractTranscriptSegments(record) {
@@ -256,6 +353,279 @@ async function requireTeacher(req, res) {
 
 /* ---------- 1. Supabase ---------- */
 const db = createSupabaseDb();
+
+/* ---------- Checkbox progress utilities ---------- */
+
+async function callOpenAIChat(apiKey, {
+  model = "gpt-4o-mini",
+  messages = [],
+  temperature = 0,
+  maxTokens = 800,
+  responseFormat = null
+}) {
+  const endpoint = "https://api.openai.com/v1/chat/completions";
+  const payload = {
+    model,
+    messages,
+    temperature,
+    max_tokens: maxTokens
+  };
+  if (responseFormat) {
+    payload.response_format = responseFormat;
+  }
+
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`OpenAI chat error ${res.status} ${res.statusText}: ${errorText}`);
+  }
+
+  return res.json();
+}
+
+function parseJsonFromText(text) {
+  if (!text || typeof text !== 'string') return null;
+  let trimmed = text.trim();
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced) {
+    trimmed = fenced[1].trim();
+  } else {
+    trimmed = trimmed.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
+  }
+  try {
+    return JSON.parse(trimmed);
+  } catch (_) {
+    const firstBrace = trimmed.indexOf('{');
+    const lastBrace = trimmed.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      const candidate = trimmed.slice(firstBrace, lastBrace + 1);
+      try {
+        return JSON.parse(candidate);
+      } catch (__) {
+        return null;
+      }
+    }
+    return null;
+  }
+}
+
+function resolveCriterionId(criterion) {
+  if (!criterion) return null;
+  const candidates = [
+    criterion._id,
+    criterion.dbId,
+    criterion.db_id,
+    criterion.criteria_id,
+    criterion.criterion_id,
+    criterion.id
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim().length >= 8) {
+      return candidate.trim();
+    }
+  }
+  return null;
+}
+
+function normalizeCriteriaRecords(rawCriteria = []) {
+  return (rawCriteria || [])
+    .map((input, index) => {
+      const criterionId = resolveCriterionId(input);
+      if (!criterionId) return null;
+      const orderIndex = typeof input.order_index === 'number'
+        ? input.order_index
+        : (typeof input.originalIndex === 'number' ? input.originalIndex : index);
+      const weightValue = Number(input.weight ?? 1);
+      return {
+        _id: criterionId,
+        description: (input.description || '').toString(),
+        rubric: (input.rubric || '').toString(),
+        weight: Number.isFinite(weightValue) && weightValue > 0 ? weightValue : 1,
+        order_index: orderIndex,
+        originalIndex: typeof input.originalIndex === 'number' ? input.originalIndex : orderIndex
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => {
+      if (a.order_index === b.order_index) {
+        return a.originalIndex - b.originalIndex;
+      }
+      return a.order_index - b.order_index;
+    });
+}
+
+function createEmptyProgressEntry(timestamp) {
+  return {
+    status: 'grey',
+    completed: false,
+    quote: null,
+    history: [],
+    updated_at: timestamp,
+    completed_at: null
+  };
+}
+
+function normalizeProgressEntry(entry, timestamp) {
+  if (!entry) {
+    return createEmptyProgressEntry(timestamp);
+  }
+  const status = typeof entry.status === 'string' ? entry.status : 'grey';
+  const normalized = {
+    status,
+    completed: status === 'green' ? true : Boolean(entry.completed),
+    quote: entry.quote ?? null,
+    history: Array.isArray(entry.history) ? entry.history.slice() : [],
+    updated_at: typeof entry.updated_at === 'number' ? entry.updated_at : timestamp,
+    completed_at: entry.completed_at ?? (status === 'green' ? (typeof entry.updated_at === 'number' ? entry.updated_at : timestamp) : null)
+  };
+  if (normalized.status !== 'green') {
+    normalized.completed = normalized.status === 'green';
+    if (normalized.completed === false) {
+      normalized.completed_at = null;
+    }
+  }
+  return normalized;
+}
+
+function mergeProgressMap(existingMap, criteriaRecords, timestamp) {
+  const merged = {};
+  if (existingMap && typeof existingMap === 'object') {
+    for (const [criterionId, entry] of Object.entries(existingMap)) {
+      merged[criterionId] = normalizeProgressEntry(entry, timestamp);
+    }
+  }
+  for (const criterion of criteriaRecords) {
+    if (!criterion?._id) continue;
+    const criterionId = String(criterion._id);
+    if (!merged[criterionId]) {
+      merged[criterionId] = createEmptyProgressEntry(timestamp);
+    }
+  }
+  return merged;
+}
+
+async function ensureGroupProgressDoc(sessionId, groupNumber, criteriaRecords = []) {
+  const timestamp = Date.now();
+  const progressCollection = db.collection("checkbox_progress");
+  const existing = await progressCollection.findOne({
+    session_id: sessionId,
+    group_number: groupNumber
+  });
+  const mergedProgress = mergeProgressMap(existing?.progress, criteriaRecords, timestamp);
+  const createdAt = existing?.created_at ?? timestamp;
+  const existingKeys = existing?.progress && typeof existing.progress === 'object'
+    ? Object.keys(existing.progress)
+    : [];
+  const mergedKeys = Object.keys(mergedProgress);
+  const keysChanged = mergedKeys.length !== existingKeys.length ||
+    mergedKeys.some((key) => !existingKeys.includes(key));
+
+  if (!existing || keysChanged) {
+    const updated = await progressCollection.findOneAndUpdate(
+      { session_id: sessionId, group_number: groupNumber },
+      {
+        $set: {
+          session_id: sessionId,
+          group_number: groupNumber,
+          progress: mergedProgress,
+          created_at: createdAt,
+          updated_at: timestamp
+        }
+      },
+      { upsert: true }
+    );
+    return updated;
+  }
+
+  return {
+    ...existing,
+    progress: mergedProgress
+  };
+}
+
+function extractExistingProgress(criteriaRecords, progressMap = {}) {
+  return criteriaRecords.map((criterion) => {
+    const key = String(criterion._id);
+    const entry = progressMap[key];
+    if (!entry) {
+      return null;
+    }
+    return {
+      status: entry.status ?? 'grey',
+      quote: entry.quote ?? null,
+      completed: entry.completed === true || entry.status === 'green'
+    };
+  });
+}
+
+function applyMatchToProgressEntry(existingEntry, status, quote, timestamp) {
+  const newStatus = status;
+  const newQuote = newStatus === 'grey' ? null : (quote ?? null);
+  const baseline = existingEntry ? { ...existingEntry } : createEmptyProgressEntry(timestamp);
+  const currentStatus = baseline.status ?? 'grey';
+
+  let shouldUpdate = false;
+  if (!existingEntry) {
+    shouldUpdate = true;
+  } else if (currentStatus === 'green') {
+    shouldUpdate = false;
+  } else if (currentStatus === 'grey') {
+    shouldUpdate = newStatus === 'red' || newStatus === 'green';
+  } else if (currentStatus === 'red') {
+    shouldUpdate = newStatus === 'green';
+  } else {
+    shouldUpdate = newStatus !== currentStatus;
+  }
+
+  if (!shouldUpdate) {
+    return { updated: false, entry: existingEntry ?? baseline };
+  }
+
+  const history = Array.isArray(baseline.history) ? baseline.history.slice() : [];
+  history.push({
+    status: newStatus,
+    quote: newQuote,
+    timestamp
+  });
+
+  const completedAt = baseline.completed_at ?? (newStatus === 'green' ? timestamp : null);
+
+  return {
+    updated: true,
+    entry: {
+      status: newStatus,
+      quote: newQuote,
+      completed: newStatus === 'green',
+      updated_at: timestamp,
+      completed_at: newStatus === 'green' ? completedAt : baseline.completed_at ?? null,
+      history
+    }
+  };
+}
+
+function buildChecklistCriteria(criteriaRecords, progressMap = {}) {
+  return criteriaRecords.map((criterion, index) => {
+    const key = String(criterion._id);
+    const entry = progressMap[key];
+    return {
+      id: index,
+      dbId: criterion._id,
+      description: criterion.description,
+      rubric: criterion.rubric || '',
+      status: entry?.status || 'grey',
+      completed: entry?.completed === true || entry?.status === 'green' || false,
+      quote: entry?.quote ?? null
+    };
+  });
+}
 
 async function connectToDatabase() {
   try {
@@ -1289,6 +1659,17 @@ app.post("/api/mindmap/generate", express.json(), async (req, res) => {
     
     // Generate mindmap using AI
     const mindmapData = await generateInitialMindmap(text, session.main_topic);
+    ensureMindmapNodeIds(mindmapData);
+
+    await db.collection("sessions").updateOne(
+      { _id: session._id },
+      {
+        $set: {
+          mindmap_data: mindmapData,
+          last_updated: new Date()
+        }
+      }
+    );
     
     // Store the generated mindmap
     await db.collection("mindmap_sessions").updateOne(
@@ -1357,12 +1738,29 @@ app.post("/api/mindmap/expand", express.json(), async (req, res) => {
     
     // Expand mindmap using AI
     const result = await expandMindmap(text, mindmapSession.current_mindmap, session.main_topic);
+
+    let mindmapToPersist = result.updatedMindmap;
+    const latestStoredMindmap = await getMindmapData(sessionCode);
+    if (latestStoredMindmap) {
+      mindmapToPersist = mergeLegacyMindmapTrees(mindmapToPersist, latestStoredMindmap);
+    }
+    ensureMindmapNodeIds(mindmapToPersist);
+
+    await db.collection("sessions").updateOne(
+      { _id: session._id },
+      {
+        $set: {
+          mindmap_data: mindmapToPersist,
+          last_updated: new Date()
+        }
+      }
+    );
     
     // Store the updated mindmap and chat history
     await db.collection("mindmap_sessions").updateOne(
       { session_id: session._id },
       { 
-        $set: { current_mindmap: result.updatedMindmap },
+        $set: { current_mindmap: mindmapToPersist },
         $push: { 
           chat_history: {
             type: 'user',
@@ -1379,13 +1777,13 @@ app.post("/api/mindmap/expand", express.json(), async (req, res) => {
       session_id: session._id,
       type: "mindmap_expanded",
       content: text,
-      ai_response: { action: "expand", explanation: result.explanation, data: result.updatedMindmap },
+      ai_response: { action: "expand", explanation: result.explanation, data: mindmapToPersist },
       created_at: Date.now()
     });
     
     res.json({
       success: true,
-      data: result.updatedMindmap,
+      data: mindmapToPersist,
       message: result.explanation,
       rawAiResponse: result.rawResponse // For collapsible display
     });
@@ -1629,27 +2027,97 @@ app.post("/api/mindmap/save", express.json(), async (req, res) => {
   }
 });
 
+/* Persist manual mindmap adjustments (examples, deletions, rearrangements) */
+app.post("/api/mindmap/manual-update", express.json(), async (req, res) => {
+  try {
+    const teacher = await requireTeacher(req, res);
+    if (!teacher) return;
+
+    const { sessionCode, mindmapData, reason = "manual_update", metadata = {}, mainTopic } = req.body || {};
+
+    if (!sessionCode || !mindmapData) {
+      return res.status(400).json({ error: "Session code and mindmap data required" });
+    }
+
+    console.log(`🧠 Manual mindmap update (${reason}) for session: ${sessionCode}`);
+
+    const session = await db.collection("sessions").findOne({ code: sessionCode, mode: "mindmap" });
+    if (!session) {
+      return res.status(404).json({ error: "Mindmap session not found" });
+    }
+    if (session.owner_id !== teacher.id) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const now = Date.now();
+    const topicToPersist = mainTopic || session.main_topic;
+    const normalizedMindmap = structuredClone(mindmapData);
+    ensureMindmapNodeIds(normalizedMindmap);
+
+    await db.collection("sessions").updateOne(
+      { _id: session._id },
+      {
+        $set: {
+          mindmap_data: normalizedMindmap,
+          main_topic: topicToPersist,
+          last_updated: new Date()
+        }
+      }
+    );
+
+    await db.collection("mindmap_sessions").updateOne(
+      { session_id: session._id },
+      {
+        $set: {
+          current_mindmap: normalizedMindmap,
+          main_topic: topicToPersist,
+          updated_at: now
+        },
+        $push: {
+          manual_updates: {
+            timestamp: now,
+            reason,
+            metadata
+          }
+        }
+      },
+      { upsert: true }
+    );
+
+    await db.collection("session_logs").insertOne({
+      _id: uuid(),
+      session_id: session._id,
+      type: "mindmap_manual_update",
+      content: reason,
+      ai_response: { action: "manual_update", metadata },
+      created_at: now
+    });
+
+    res.json({ success: true, data: normalizedMindmap });
+  } catch (err) {
+    console.error("❌ Failed to sync manual mindmap update:", err);
+    res.status(500).json({ error: err.message || "Failed to sync mindmap update" });
+  }
+});
+
 // AI Functions for hierarchical mindmap processing
 async function generateInitialMindmap(contextualText, mainTopic) {
-  if (!groqClient) {
-    throw new Error("Mindmap generation unavailable: GROQ_API_KEY not configured.");
+  if (!OPENAI_API_KEY) {
+    throw new Error("Mindmap generation unavailable: OPENAI_API_KEY not configured.");
   }
 
   try {
-    console.log(`🧠 Groq Mindmap: Generating initial academic mindmap for topic: "${mainTopic}"`);
+    console.log(`🧠 OpenAI Mindmap: Generating initial academic mindmap for topic: "${mainTopic}"`);
 
-    const completion = await groqClient.chat.completions.create({
-      model: "openai/gpt-oss-120b",
-      temperature: 0,
-      top_p: 1,
-      max_completion_tokens: 2048,
-      reasoning_effort: "low",
-      response_format: { type: "json_object" },
-      stream: false,
+    const completion = await callOpenAIChat(OPENAI_API_KEY, {
+      model: "gpt-4.1-mini",
+      temperature: 0.1,
+      maxTokens: 2000,
+      responseFormat: { type: "json_object" },
       messages: [
         {
           role: "system",
-          content: "You transform noisy classroom transcripts into structured JSON mindmaps. Respond only with JSON."
+          content: "You transform noisy classroom transcripts into structured JSON mindmaps. Always respond with valid JSON."
         },
         {
           role: "user",
@@ -1684,92 +2152,151 @@ Rules:
       ]
     });
 
-    const responseText = completion.choices?.[0]?.message?.content?.trim();
-    if (!responseText) {
-      throw new Error("Groq returned an empty response.");
-    }
+    const responseText = completion?.choices?.[0]?.message?.content?.trim() || "{}";
+    const parsed = parseJsonFromText(responseText) || {};
 
-    let parsed;
-    try {
-      parsed = JSON.parse(responseText);
-    } catch (err) {
-      console.error("❌ Groq mindmap JSON parse error:", err);
-      throw new Error("Failed to parse Groq mindmap response.");
-    }
-
-    if (!parsed.nodes || parsed.nodes.length === 0) {
-      console.log("⚠️ Groq Mindmap: No meaningful academic content detected");
-      return {
-        name: mainTopic,
-        children: []
-      };
+    if (!Array.isArray(parsed.nodes) || parsed.nodes.length === 0) {
+      console.log("⚠️ OpenAI Mindmap: No meaningful academic content detected, falling back to outline generation");
+      return await generateFallbackMindmap(mainTopic);
     }
 
     const convertedResult = convertMaestroToLegacy(parsed, mainTopic);
+    ensureMindmapNodeIds(convertedResult);
+    if (!convertedResult.children || convertedResult.children.length === 0) {
+      console.log("⚠️ OpenAI Mindmap: Converted mindmap has no branches, invoking fallback outline");
+      return await generateFallbackMindmap(mainTopic);
+    }
     return convertedResult;
   } catch (error) {
-    console.error("❌ Failed to generate mindmap via Groq:", error);
+    console.error("❌ Failed to generate mindmap via OpenAI:", error);
     throw error;
   }
+}
+
+async function generateFallbackMindmap(mainTopic) {
+  console.log(`✨ Mindmap fallback: creating generic outline for "${mainTopic}"`);
+  if (!OPENAI_API_KEY) {
+    const fallback = {
+      id: generateMindmapNodeId(),
+      name: mainTopic,
+      children: []
+    };
+    ensureMindmapNodeIds(fallback);
+    return fallback;
+  }
+
+  try {
+    const completion = await callOpenAIChat(OPENAI_API_KEY, {
+      model: "gpt-4.1-mini",
+      temperature: 0.3,
+      maxTokens: 1200,
+      responseFormat: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: "You create academic mindmap outlines as JSON. Always include multiple top-level concepts."
+        },
+        {
+          role: "user",
+          content: `
+Topic: ${mainTopic}
+
+Task: Generate a mindmap outline with at least 3 primary branches and relevant supporting details (depth up to 3). Use the same JSON schema as before:
+{
+  "topic": "${mainTopic}",
+  "version": "${new Date().toISOString()}",
+  "nodes": [
+    { "id": "uuid", "parent_id": null, "label": "primary concept", "type": "main" },
+    { "id": "uuid", "parent_id": "uuid", "label": "supporting idea", "type": "sub" },
+    { "id": "uuid", "parent_id": "uuid", "label": "example or evidence", "type": "example" }
+  ]
+}
+
+Constraints:
+- Produce at least 3 distinct main concepts related to the topic.
+- Include supporting sub-ideas when appropriate.
+- Return valid JSON only.`
+        }
+      ]
+    });
+
+    const fallbackText = completion?.choices?.[0]?.message?.content?.trim() || "{}";
+    const parsedFallback = parseJsonFromText(fallbackText);
+    if (parsedFallback?.nodes && parsedFallback.nodes.length > 0) {
+      return convertMaestroToLegacy(parsedFallback, mainTopic);
+    }
+  } catch (err) {
+    console.warn("⚠️ Mindmap fallback via OpenAI failed:", err.message);
+  }
+
+  const fallback = {
+    id: generateMindmapNodeId(),
+    name: mainTopic,
+    children: []
+  };
+  ensureMindmapNodeIds(fallback);
+  return fallback;
 }
 
 // Convert Mind-Map Maestro format to our legacy hierarchical format
 function convertMaestroToLegacy(maestroData, mainTopic) {
   const legacy = {
+    id: generateMindmapNodeId(),
     name: mainTopic,
     children: []
   };
-  
-  // Group nodes by parent_id
-  const nodeMap = {};
-  const rootNodes = [];
-  
-  maestroData.nodes.forEach(node => {
-    nodeMap[node.id] = {
+
+  const nodeMap = new Map();
+  const idMap = new Map();
+
+  (maestroData.nodes || []).forEach((node, index) => {
+    const resolvedId = node.id || generateMindmapNodeId();
+    idMap.set(node.id ?? `idx:${index}`, resolvedId);
+    nodeMap.set(resolvedId, {
       name: node.label,
       children: [],
       type: node.type,
-      id: node.id
-    };
-    
-    if (node.parent_id === null) {
-      rootNodes.push(nodeMap[node.id]);
+      id: resolvedId
+    });
+  });
+
+  const rootNodes = [];
+
+  (maestroData.nodes || []).forEach((node, index) => {
+    const resolvedId = idMap.get(node.id ?? `idx:${index}`);
+    const entry = nodeMap.get(resolvedId);
+    const parentResolvedId = node.parent_id == null ? null : idMap.get(node.parent_id);
+
+    if (parentResolvedId && nodeMap.has(parentResolvedId)) {
+      nodeMap.get(parentResolvedId).children.push(entry);
+    } else {
+      rootNodes.push(entry);
     }
   });
-  
-  // Build hierarchy
-  maestroData.nodes.forEach(node => {
-    if (node.parent_id !== null && nodeMap[node.parent_id]) {
-      nodeMap[node.parent_id].children.push(nodeMap[node.id]);
-    }
-  });
-  
-  // Add root nodes as children of main topic
+
   legacy.children = rootNodes;
-  
-  console.log(`✅ Mind-Map Maestro: Converted ${maestroData.nodes.length} nodes to legacy format`);
+  ensureMindmapNodeIds(legacy);
+
+  console.log(`✅ Mind-Map Maestro: Converted ${maestroData.nodes?.length || 0} nodes to legacy format`);
   return legacy;
 }
 
 async function expandMindmap(contextualText, currentMindmap, mainTopic) {
-  if (!groqClient) {
-    throw new Error("Mindmap expansion unavailable: GROQ_API_KEY not configured.");
+  if (!OPENAI_API_KEY) {
+    throw new Error("Mindmap expansion unavailable: OPENAI_API_KEY not configured.");
   }
 
   try {
-    console.log(`🧠 Groq Mindmap: Expanding mindmap for topic "${mainTopic}"`);
+    console.log(`🧠 OpenAI Mindmap: Expanding mindmap for topic "${mainTopic}"`);
     
     // Convert current mindmap to Maestro format for processing
     const currentMaestroFormat = convertLegacyToMaestro(currentMindmap, mainTopic);
     
-    const completion = await groqClient.chat.completions.create({
-      model: "openai/gpt-oss-120b",
-      temperature: 0,
-      top_p: 1,
-      max_completion_tokens: 2048,
-      reasoning_effort: "low",
-      response_format: { type: "json_object" },
-      stream: false,
+    const completion = await callOpenAIChat(OPENAI_API_KEY, {
+      model: "gpt-4.1-mini",
+      temperature: 0.1,
+      maxTokens: 2000,
+      responseFormat: { type: "json_object" },
       messages: [
         {
           role: "system",
@@ -1807,21 +2334,12 @@ Rules:
       ]
     });
 
-    const responseText = completion.choices?.[0]?.message?.content?.trim();
-    if (!responseText) {
-      throw new Error("Groq returned an empty response.");
-    }
-
-    let result;
-    try {
-      result = JSON.parse(responseText);
-    } catch (err) {
-      console.error("❌ Groq mindmap expansion parse error:", err);
-      throw new Error("Failed to parse Groq expansion response.");
-    }
+    const responseText = completion?.choices?.[0]?.message?.content?.trim() || "{}";
+    const result = parseJsonFromText(responseText) || {};
 
     if (result.action === "ignore") {
-      console.log("⚠️ Groq Mindmap: Current chunk contained no new academic content");
+      console.log("⚠️ OpenAI Mindmap: Current chunk contained no new academic content");
+      ensureMindmapNodeIds(currentMindmap);
       return {
         updatedMindmap: currentMindmap, // Return unchanged mindmap
         explanation: result.explanation || 'Content filtered out: no academic value',
@@ -1832,8 +2350,9 @@ Rules:
 
     // Convert result back to legacy format
     const updatedLegacyFormat = convertMaestroToLegacy(result, mainTopic);
+    ensureMindmapNodeIds(updatedLegacyFormat);
 
-    console.log(`✅ Groq Mindmap: Expansion processed with ${result.nodes.length} total nodes`);
+    console.log(`✅ OpenAI Mindmap: Expansion processed with ${result.nodes?.length || 0} total nodes`);
 
     return {
       updatedMindmap: updatedLegacyFormat,
@@ -1843,56 +2362,53 @@ Rules:
     };
     
   } catch (error) {
-    console.error("❌ Failed to expand mindmap via Groq:", error);
+    console.error("❌ Failed to expand mindmap via OpenAI:", error);
     throw error;
   }
 }
 
 // Convert legacy hierarchical format to Mind-Map Maestro format
 function convertLegacyToMaestro(legacyData, mainTopic) {
+  const source = structuredClone(legacyData);
+  ensureMindmapNodeIds(source);
+
   const maestro = {
     topic: mainTopic,
     version: new Date().toISOString(),
     nodes: []
   };
   
-  let nodeCounter = 0;
-  
   function addNode(node, parentId = null, depth = 0) {
-    const nodeId = `node-${nodeCounter++}`;
+    const nodeId = node.id || generateMindmapNodeId();
     let nodeType = 'main';
-    
+
     if (depth === 1) nodeType = 'main';
     else if (depth === 2) nodeType = 'sub';
     else if (depth >= 3) nodeType = 'example';
-    
-    // Don't add the root node itself, only its children
-    if (node.name !== mainTopic) {
+
+    if (depth > 0) {
       maestro.nodes.push({
         id: nodeId,
         parent_id: parentId,
         label: node.name,
-        type: nodeType
+        type: node.type || nodeType
       });
     }
     
-    // Process children
-    if (node.children && node.children.length > 0) {
-      node.children.forEach(child => {
-        addNode(child, node.name === mainTopic ? null : nodeId, depth + 1);
-      });
-    }
+    (node.children || []).forEach(child => addNode(child, nodeId, depth + 1));
   }
   
-  addNode(legacyData);
+  addNode(source);
   return maestro;
 }
 
 
 app.post("/api/mindmap/examples", express.json(), async (req, res) => {
   try {
-    if (!groqClient) {
-      return res.status(500).json({ error: 'Groq client not configured' });
+    const apiKey = process.env.OPENAI_API_KEY || process.env.OPENAI_KEY;
+    if (!apiKey) {
+      console.warn("⚠️ Missing OpenAI credentials for mindmap example helper");
+      return res.status(500).json({ error: 'OpenAI key not configured' });
     }
 
     const { topic, nodeLabel, siblingIdeas = [], childIdeas = [] } = req.body || {};
@@ -1901,24 +2417,31 @@ app.post("/api/mindmap/examples", express.json(), async (req, res) => {
       return res.status(400).json({ error: 'nodeLabel is required' });
     }
 
-    const prompt = `You are a teaching assistant who suggests concise mindmap ideas.
-TOPIC: ${topic || 'Unknown Topic'}
-NODE: ${nodeLabel}
-RELATED SIBLINGS: ${siblingIdeas.join('; ') || 'None'}
-ALREADY DISCUSSED CHILDREN: ${childIdeas.join('; ') || 'None'}
-Provide 3-5 short example ideas (max 12 words each) that could extend this node. Reply as JSON in the shape {\"examples\":[\"idea 1\", ...]}. Do not include explanations.`;
+    const sanitizedSiblings = Array.isArray(siblingIdeas) ? siblingIdeas.filter(Boolean) : [];
+    const sanitizedChildren = Array.isArray(childIdeas) ? childIdeas.filter(Boolean) : [];
 
-    const completion = await groqClient.chat.completions.create({
-      model: 'openai/gpt-oss-120b',
-      temperature: 0.4,
-      top_p: 1,
-      max_completion_tokens: 512,
-      reasoning_effort: 'low',
-      response_format: { type: 'json_object' },
+    const prompt = `
+You are an instructional design assistant expanding a classroom mindmap.
+
+Main topic: ${topic || 'Unknown Topic'}
+Current node: ${nodeLabel}
+Sibling ideas: ${sanitizedSiblings.length ? sanitizedSiblings.join('; ') : 'None'}
+Existing child ideas: ${sanitizedChildren.length ? sanitizedChildren.join('; ') : 'None'}
+
+Produce 3 to 5 fresh, concrete child ideas (max 12 words each) that extend "${nodeLabel}".
+Return JSON only: {"examples":["idea 1","idea 2",...]}.
+Avoid duplicates, vague phrases, or repeating sibling/child ideas.
+`.trim();
+
+    const completion = await callOpenAIChat(apiKey, {
+      model: 'gpt-4.1-mini',
+      temperature: 0.55,
+      maxTokens: 500,
+      responseFormat: { type: 'json_object' },
       messages: [
         {
           role: 'system',
-          content: 'You generate structured JSON for mindmap brainstorming. Keep suggestions concise and educational.'
+          content: 'You suggest concise, classroom-ready mindmap examples. Always respond with valid JSON containing an "examples" array.'
         },
         {
           role: 'user',
@@ -1927,19 +2450,42 @@ Provide 3-5 short example ideas (max 12 words each) that could extend this node.
       ]
     });
 
-    const raw = completion.choices?.[0]?.message?.content?.trim() || '{}';
-    let parsed;
-    try {
-      parsed = JSON.parse(raw);
-    } catch (parseErr) {
-      console.warn('Groq JSON parse error:', parseErr, raw);
-      return res.json({ examples: [], raw });
+    const raw = completion?.choices?.[0]?.message?.content?.trim() || '{}';
+    const parsed = parseJsonFromText(raw) || {};
+    const initial = Array.isArray(parsed.examples) ? parsed.examples : [];
+
+    const seen = new Set();
+    const examples = [];
+    for (const example of initial) {
+      if (typeof example !== 'string') continue;
+      const trimmed = example.trim();
+      if (!trimmed) continue;
+      const key = trimmed.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      examples.push(trimmed);
+      if (examples.length === 5) break;
     }
 
-    const examples = Array.isArray(parsed.examples) ? parsed.examples.filter(Boolean).slice(0, 5) : [];
+    if (!examples.length) {
+      console.warn(`⚠️ OpenAI returned no structured examples for node "${nodeLabel}", generating fallbacks.`);
+      const fallbackTemplates = [
+        'Mini case study on {{node}}',
+        'Hands-on practice task for {{node}}',
+        'Student reflection prompt about {{node}}',
+        'Real-world application of {{node}}',
+        'Quick assessment checklist for {{node}}'
+      ];
+      fallbackTemplates.forEach(template => {
+        if (examples.length < 3) {
+          examples.push(template.replace('{{node}}', nodeLabel));
+        }
+      });
+    }
+
     res.json({ examples, raw });
   } catch (error) {
-    console.error('❌ Groq example generation failed:', error);
+    console.error('❌ OpenAI mindmap example generation failed:', error);
     res.status(500).json({ error: 'Failed to generate examples' });
   }
 });
@@ -1947,49 +2493,101 @@ Provide 3-5 short example ideas (max 12 words each) that could extend this node.
 /* Generate examples for mindmap playground */
 app.post("/api/generate-examples", express.json(), async (req, res) => {
   try {
-    if (!groqClient) {
-      return res.status(500).json({ error: 'Groq client not configured' });
+    const apiKey = process.env.OPENAI_API_KEY || process.env.OPENAI_KEY;
+    if (!apiKey) {
+      console.warn("⚠️ Missing OpenAI credentials for example generation");
+      return res.status(500).json({ error: 'OpenAI key not configured' });
     }
 
-    const { topic, count = 2 } = req.body;
+    const { topic, count = 2, strand = [] } = req.body || {};
     if (!topic) {
       return res.status(400).json({ error: 'Topic is required' });
     }
 
-    const prompt = `Generate ${count} concise example ideas related to "${topic}". Each example should be a short phrase (max 8 words). Return as a JSON array of strings.`;
+    const targetCount = Math.max(1, Math.min(Number(count) || 2, 6));
+    const branch = Array.isArray(strand) ? strand.filter(Boolean) : [];
+    const focusNode = branch[branch.length - 1] || topic;
+    const branchSummary = branch.length
+      ? branch.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
+      : 'No existing branch context.';
 
-    const completion = await groqClient.chat.completions.create({
-      model: 'openai/gpt-oss-120b',
-      temperature: 0.6,
-      max_completion_tokens: 200,
+    const instructions = `
+You are helping a teacher extend a classroom mindmap.
+
+Mindmap branch so far:
+${branchSummary}
+
+Requirements:
+- Produce EXACTLY ${targetCount} unique child ideas that extend the node "${focusNode}".
+- Each idea must be actionable, classroom-ready, and 12 words or fewer.
+- Avoid repeating existing ideas or vague placeholders.
+- If there are sibling ideas, ensure the new ones are clearly distinct.
+
+Return JSON only:
+{"examples":["idea 1","idea 2", "..."]}
+
+Do not include explanations or extra keys.
+`.trim();
+
+    const completion = await callOpenAIChat(apiKey, {
+      model: 'gpt-4.1-mini',
+      temperature: 0.65,
+      maxTokens: 400,
+      responseFormat: { type: 'json_object' },
       messages: [
         {
           role: 'system',
-          content: 'You generate concise educational examples. Return only a JSON array of strings.'
+          content: 'You generate concise, classroom-ready mindmap ideas. Always return valid JSON.'
         },
         {
           role: 'user',
-          content: prompt
+          content: instructions
         }
       ]
     });
 
-    const raw = completion.choices?.[0]?.message?.content?.trim() || '[]';
-    let examples;
-    try {
-      examples = JSON.parse(raw);
-    } catch (parseErr) {
-      console.warn('Groq JSON parse error:', parseErr, raw);
-      examples = [`Example 1 for ${topic}`, `Example 2 for ${topic}`, `Example 3 for ${topic}`];
+    const raw = completion?.choices?.[0]?.message?.content ?? '{}';
+    const parsed = parseJsonFromText(raw) || {};
+    const initial = Array.isArray(parsed.examples) ? parsed.examples : [];
+
+    const seen = new Set();
+    const examples = [];
+    for (const item of initial) {
+      if (typeof item !== 'string') continue;
+      const trimmed = item.trim();
+      if (!trimmed) continue;
+      const key = trimmed.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      examples.push(trimmed);
     }
 
-    if (!Array.isArray(examples)) {
-      examples = [`Example 1 for ${topic}`, `Example 2 for ${topic}`, `Example 3 for ${topic}`];
+    if (examples.length < targetCount) {
+      console.warn(`⚠️ OpenAI returned ${examples.length} examples; adding fallbacks for topic "${topic}"`);
+      const fallbackTemplates = [
+        'Classroom activity exploring {{focus}}',
+        'Real-world case linking {{focus}}',
+        'Student reflection on {{focus}}',
+        'Hands-on project centred on {{focus}}',
+        'Mini assessment covering {{focus}}',
+        'Peer discussion prompt: {{focus}}'
+      ];
+      let idx = 0;
+      while (examples.length < targetCount && idx < fallbackTemplates.length * 2) {
+        const template = fallbackTemplates[idx % fallbackTemplates.length];
+        const candidate = template.replace('{{focus}}', focusNode);
+        const key = candidate.toLowerCase();
+        if (!seen.has(key)) {
+          seen.add(key);
+          examples.push(candidate);
+        }
+        idx += 1;
+      }
     }
 
-    res.json(examples);
+    res.json(examples.slice(0, targetCount));
   } catch (error) {
-    console.error('❌ Groq example generation failed:', error);
+    console.error('❌ OpenAI example generation failed:', error);
     res.status(500).json({ error: 'Failed to generate examples' });
   }
 });
@@ -1997,8 +2595,8 @@ app.post("/api/generate-examples", express.json(), async (req, res) => {
 /* Generate a single point for mindmap playground */
 app.post("/api/generate-point", express.json(), async (req, res) => {
   try {
-    if (!groqClient) {
-      return res.status(500).json({ error: 'Groq client not configured' });
+    if (!OPENAI_API_KEY) {
+      return res.status(500).json({ error: 'OpenAI key not configured' });
     }
 
     const { topic } = req.body;
@@ -2008,10 +2606,10 @@ app.post("/api/generate-point", express.json(), async (req, res) => {
 
     const prompt = `Generate a single, concise point or idea related to "${topic}". It should be a short phrase (max 8 words) that could be a sub-topic or supporting detail. Return just the phrase, no quotes or extra text.`;
 
-    const completion = await groqClient.chat.completions.create({
-      model: 'openai/gpt-oss-120b',
+    const completion = await callOpenAIChat(OPENAI_API_KEY, {
+      model: 'gpt-4.1-mini',
       temperature: 0.7,
-      max_completion_tokens: 50,
+      maxTokens: 60,
       messages: [
         {
           role: 'system',
@@ -2024,10 +2622,10 @@ app.post("/api/generate-point", express.json(), async (req, res) => {
       ]
     });
 
-    const point = completion.choices?.[0]?.message?.content?.trim() || `Point about ${topic}`;
+    const point = completion?.choices?.[0]?.message?.content?.trim() || `Point about ${topic}`;
     res.json(point);
   } catch (error) {
-    console.error('❌ Groq point generation failed:', error);
+    console.error('❌ OpenAI point generation failed:', error);
     res.status(500).json({ error: 'Failed to generate point' });
   }
 });
@@ -2035,8 +2633,8 @@ app.post("/api/generate-point", express.json(), async (req, res) => {
 /* Generate contextual point based on graph structure */
 app.post("/api/generate-contextual-point", express.json(), async (req, res) => {
   try {
-    if (!groqClient) {
-      return res.status(500).json({ error: 'Groq client not configured' });
+    if (!OPENAI_API_KEY) {
+      return res.status(500).json({ error: 'OpenAI key not configured' });
     }
 
     const { graphData, selectedNode } = req.body;
@@ -2054,10 +2652,10 @@ Current selected node: "${selectedNode}"
 
 Generate a single, relevant point that would logically extend this node. Consider the existing structure and relationships. Return just a concise phrase (max 8 words) that fits naturally with the current mindmap.`;
 
-    const completion = await groqClient.chat.completions.create({
-      model: 'openai/gpt-oss-120b',
+    const completion = await callOpenAIChat(OPENAI_API_KEY, {
+      model: 'gpt-4.1-mini',
       temperature: 0.7,
-      max_completion_tokens: 50,
+      maxTokens: 60,
       messages: [
         {
           role: 'system',
@@ -2070,10 +2668,10 @@ Generate a single, relevant point that would logically extend this node. Conside
       ]
     });
 
-    const point = completion.choices?.[0]?.message?.content?.trim() || `Point about ${selectedNode}`;
+    const point = completion?.choices?.[0]?.message?.content?.trim() || `Point about ${selectedNode}`;
     res.json(point);
   } catch (error) {
-    console.error('❌ Groq contextual point generation failed:', error);
+    console.error('❌ OpenAI contextual point generation failed:', error);
     res.status(500).json({ error: 'Failed to generate contextual point' });
   }
 });
@@ -2081,11 +2679,11 @@ Generate a single, relevant point that would logically extend this node. Conside
 /* Ask question about the mindmap */
 app.post("/api/ask-question", express.json(), async (req, res) => {
   try {
-    if (!groqClient) {
-      return res.status(500).json({ error: 'Groq client not configured' });
+    if (!OPENAI_API_KEY) {
+      return res.status(500).json({ error: 'OpenAI key not configured' });
     }
 
-    const { question, graphData, selectedNode } = req.body;
+    const { question, graphData, selectedNode, strandPath = [] } = req.body;
     if (!question || !graphData || !selectedNode) {
       return res.status(400).json({ error: 'Question, graph data, and selected node are required' });
     }
@@ -2093,23 +2691,44 @@ app.post("/api/ask-question", express.json(), async (req, res) => {
     // Convert graph structure to text for context
     const graphContext = convertGraphToText(graphData);
     
+    const strandList = Array.isArray(strandPath) ? strandPath.filter(name => typeof name === 'string' && name.trim().length > 0) : [];
+    const strandText = strandList.length
+      ? strandList.map((name, idx) => `${'  '.repeat(idx)}- ${name.trim()}`).join('\n')
+      : '(No strand provided; use overall context)';
+
     const prompt = `Based on this mindmap structure:
 ${graphContext}
+
+Active strand from root to current node:
+${strandText}
 
 Current selected node: "${selectedNode}"
 
 User question: "${question}"
 
-Provide a concise answer (max 8 words) that could be added as a new node to this mindmap. The answer should be relevant to both the question and the existing structure.`;
+Generate between 1 and 4 concise child ideas that extend this node. Each idea should be short (max 10 words) and directly relevant to the strand above.
 
-    const completion = await groqClient.chat.completions.create({
-      model: 'openai/gpt-oss-120b',
-      temperature: 0.7,
-      max_completion_tokens: 50,
+Respond ONLY with valid JSON following this schema:
+{
+  "nodes": [
+    {
+      "text": "Label for the new node",
+      "note": "Optional extra context for the teacher (max 20 words)"
+    }
+  ]
+}
+
+Do not include any other keys or commentary.`;
+
+    const completion = await callOpenAIChat(OPENAI_API_KEY, {
+      model: 'gpt-4.1-mini',
+      temperature: 0.6,
+      maxTokens: 200,
+      responseFormat: { type: 'json_object' },
       messages: [
         {
           role: 'system',
-          content: 'You provide concise answers that fit naturally into mindmap structures. Return only the answer phrase, no quotes or explanations.'
+          content: 'You provide concise answers that fit naturally into mindmap structures. Always respond with JSON that includes a "nodes" array.'
         },
         {
           role: 'user',
@@ -2118,10 +2737,39 @@ Provide a concise answer (max 8 words) that could be added as a new node to this
       ]
     });
 
-    const answer = completion.choices?.[0]?.message?.content?.trim() || `Answer about ${selectedNode}`;
-    res.json(answer);
+    const raw = completion?.choices?.[0]?.message?.content?.trim() || '{}';
+    const parsed = parseJsonFromText(raw);
+    const parsedData = parsed ?? raw;
+
+    let nodes = [];
+    if (parsedData && Array.isArray(parsedData.nodes)) {
+      nodes = parsedData.nodes;
+    } else if (Array.isArray(parsedData)) {
+      nodes = parsedData.map(entry => (typeof entry === 'string' ? { text: entry } : entry));
+    } else if (typeof parsedData === 'string' && parsedData.length > 0) {
+      nodes = [{ text: parsedData }];
+    }
+
+    nodes = nodes
+      .map(entry => {
+        if (!entry) return null;
+        if (typeof entry === 'string') {
+          return { text: entry.trim() };
+        }
+        const text = typeof entry.text === 'string' ? entry.text.trim() : '';
+        const note = typeof entry.note === 'string' ? entry.note.trim() : '';
+        if (!text) return null;
+        return note ? { text, note } : { text };
+      })
+      .filter(Boolean);
+
+    if (nodes.length === 0) {
+      nodes = [{ text: `New idea about ${selectedNode}` }];
+    }
+
+    res.json({ nodes });
   } catch (error) {
-    console.error('❌ Groq question processing failed:', error);
+    console.error('❌ OpenAI question processing failed:', error);
     res.status(500).json({ error: 'Failed to process question' });
   }
 });
@@ -2136,6 +2784,15 @@ function convertGraphToText(node, depth = 0) {
   }
   
   return text;
+}
+
+function countMindmapNodes(node) {
+  if (!node) return 0;
+  if (Array.isArray(node)) {
+    return node.reduce((sum, child) => sum + countMindmapNodes(child), 0);
+  }
+  const children = Array.isArray(node.children) ? node.children : [];
+  return 1 + children.reduce((sum, child) => sum + countMindmapNodes(child), 0);
 }
 
 /* ---------- Checkbox Mode API Endpoints ---------- */
@@ -2250,21 +2907,6 @@ app.post("/api/checkbox/session", express.json(), async (req, res) => {
         rubric: criterion.rubric || '',
         order_index: index
       });
-      
-      // Initialize progress records for each group (1-10 for now)
-      // This ensures all criteria have a baseline state
-      for (let groupNum = 1; groupNum <= 10; groupNum++) {
-        await db.collection("checkbox_progress").insertOne({
-          _id: uuid(),
-          session_id: session._id,
-          criteria_id: criterionId,
-          group_number: groupNum,
-          status: 'grey',
-          completed: false,
-          quote: null,
-          created_at: Date.now()
-        });
-      }
     }
     
     // Add to/update active sessions and cache current checkbox config in memory
@@ -2325,62 +2967,47 @@ app.post("/api/checkbox/process", express.json(), async (req, res) => {
     const mem = activeSessions.get(sessionCode);
     const strictness = session.strictness || 2;
     let scenario = clientScenario ?? mem?.checkbox?.scenario ?? "";
-    let criteria = clientCriteria ?? mem?.checkbox?.criteria;
+    const candidateCriteria = clientCriteria ?? mem?.checkbox?.criteria ?? [];
+    let criteriaRecords = normalizeCriteriaRecords(candidateCriteria);
 
-    // Fallback to DB only if not provided
-    if (!criteria || criteria.length === 0) {
-      criteria = await db.collection("checkbox_criteria")
+    if (criteriaRecords.length === 0) {
+      const dbCriteria = await db.collection("checkbox_criteria")
         .find({ session_id: session._id })
         .sort({ order_index: 1, created_at: 1 })
         .toArray();
+      criteriaRecords = normalizeCriteriaRecords(dbCriteria);
     }
+
     if (!scenario) {
       const checkboxSession = await db.collection("checkbox_sessions").findOne({ session_id: session._id });
       scenario = checkboxSession?.scenario || "";
     }
 
-    // Normalize criteria to expected shape and drop any hardcoded/default leftovers
-    criteria = (criteria || []).map((c, index) => ({
-      originalIndex: typeof c.originalIndex === 'number' ? c.originalIndex : index,
-      description: (c.description || '').toString(),
-      rubric: (c.rubric || '').toString()
-    }));
-    
-    if (criteria.length === 0) {
+    if (criteriaRecords.length === 0) {
       return res.status(400).json({ error: "No criteria found for session" });
     }
+
+    const aiCriteria = criteriaRecords.map((criterion, index) => ({
+      originalIndex: typeof criterion.originalIndex === 'number' ? criterion.originalIndex : index,
+      description: criterion.description,
+      rubric: criterion.rubric
+    }));
+
+    const progressDoc = await ensureGroupProgressDoc(session._id, groupNumber, criteriaRecords);
+    const progressMap = progressDoc?.progress || {};
+    if (progressDoc && !progressDoc.progress) {
+      progressDoc.progress = progressMap;
+    }
+    const existingProgress = extractExistingProgress(criteriaRecords, progressMap);
     
-    // Get existing progress for this group to avoid re-evaluating GREEN criteria
-    const existingProgressRecords = await db.collection("checkbox_progress")
-      .find({ 
-        session_id: session._id,
-        group_number: groupNumber 
-      })
-      .toArray();
-    
-    // Build existing progress array indexed by criteria position
-    const existingProgress = [];
-    criteria.forEach((c, idx) => {
-      const progress = existingProgressRecords.find(p => p.criteria_id === c._id);
-      if (progress) {
-        existingProgress[idx] = {
-          status: progress.status,
-          quote: progress.quote,
-          completed: progress.completed
-        };
-      } else {
-        existingProgress[idx] = null;
-      }
-    });
-    
-    console.log(`📋 Found ${existingProgressRecords.length} existing progress records for group ${groupNumber}`);
+    console.log(`📋 Prepared ${criteriaRecords.length} criteria and loaded progress map with ${Object.keys(progressMap).length} entries for group ${groupNumber}`);
     const greenCount = existingProgress.filter(p => p && p.status === 'green').length;
     if (greenCount > 0) {
       console.log(`📋 Preserving ${greenCount} GREEN criteria from previous evaluations`);
     }
     
     // Process the transcript with scenario context and strictness
-    const result = await processCheckboxTranscript(transcript, criteria, scenario, strictness, existingProgress);
+    const result = await processCheckboxTranscript(transcript, aiCriteria, scenario, strictness, existingProgress);
     
     // Log the processing result (persist once per round)
     await db.collection("session_logs").insertOne({
@@ -2395,81 +3022,58 @@ app.post("/api/checkbox/process", express.json(), async (req, res) => {
     // Update progress for matched criteria
     const progressUpdates = [];
     const now = Date.now();
+    let progressChanged = false;
     
     for (const match of result.matches) {
-      const criterion = criteria[match.criteria_index];
-      if (criterion) {
-        // Check existing progress to implement proper locking rules
-        const existingProgress = await db.collection("checkbox_progress").findOne({
-          session_id: session._id,
-          criteria_id: criterion._id
+      const criterion = criteriaRecords[match.criteria_index];
+      if (!criterion) continue;
+
+      const criterionKey = String(criterion._id);
+      const currentEntry = progressMap[criterionKey];
+      const { updated, entry } = applyMatchToProgressEntry(currentEntry, match.status, match.quote, now);
+
+      if (updated) {
+        progressMap[criterionKey] = entry;
+        progressChanged = true;
+        progressUpdates.push({
+          criteriaId: match.criteria_index,
+          criteriaDbId: criterion._id,
+          description: criterion.description,
+          completed: entry.completed,
+          quote: entry.quote,
+          status: entry.status
         });
-        
-        // Implement locking rules:
-        // 1. GREEN stays GREEN forever (locked)
-        // 2. GREY has no quotes and can become RED or GREEN
-        // 3. RED can become GREEN but not GREY
-        let shouldUpdate = false;
-        let newStatus = match.status;
-        let newQuote = match.status === 'grey' ? null : match.quote; // Grey has no quotes
-        
-        if (!existingProgress) {
-          // No existing progress - always update
-          shouldUpdate = true;
-        } else if (existingProgress.status === 'green') {
-          // GREEN is locked - never update
-          console.log(`📋 Criteria ${match.criteria_index} already GREEN (locked) with quote: "${existingProgress.quote}" - skipping update`);
-          shouldUpdate = false;
-        } else if (existingProgress.status === 'grey') {
-          // GREY can become RED or GREEN
-          if (match.status === 'red' || match.status === 'green') {
-            shouldUpdate = true;
-            console.log(`📋 Criteria ${match.criteria_index} upgrading from GREY to ${match.status.toUpperCase()}`);
-          }
-        } else if (existingProgress.status === 'red') {
-          // RED can only become GREEN
-          if (match.status === 'green') {
-            shouldUpdate = true;
-            console.log(`📋 Criteria ${match.criteria_index} upgrading from RED to GREEN`);
-          } else {
-            console.log(`📋 Criteria ${match.criteria_index} staying RED - cannot downgrade to ${match.status.toUpperCase()}`);
-            shouldUpdate = false;
-          }
-        }
-        
-        if (shouldUpdate) {
-          await db.collection("checkbox_progress").findOneAndUpdate(
-            { 
-              session_id: session._id,
-              criteria_id: criterion._id,
-              group_number: groupNumber  // Add group_number to the query
-            },
-            {
-              $set: {
-                completed: newStatus === 'green', // Only mark as completed if green
-                quote: newQuote, // No quote for grey status
-                status: newStatus,
-                completed_at: now,
-                group_number: groupNumber  // Ensure group_number is set
-              }
-            },
-            { upsert: true }
-          );
-          
-          // Emit using both stable DB criteria_id and display index to avoid off-by-one errors
-          progressUpdates.push({
-            criteriaId: match.criteria_index,
-            criteriaDbId: criterion._id,
-            description: criterion.description,
-            completed: match.status === 'green',
-            quote: match.quote,
-            status: match.status
-          });
-          
-          console.log(`📋 Checkbox update for criteria idx=${match.criteria_index} (_id=${criterion._id}): "${match.quote}" - STATUS: ${match.status}`);
+        console.log(`📋 Checkbox update for criteria idx=${match.criteria_index} (_id=${criterion._id}): "${match.quote}" - STATUS: ${entry.status}`);
+      } else if (currentEntry) {
+        if (currentEntry.status === 'green') {
+          console.log(`📋 Criteria ${match.criteria_index} already GREEN (locked) with quote: "${currentEntry.quote}" - skipping update`);
+        } else if (currentEntry.status === 'red' && match.status !== 'green') {
+          console.log(`📋 Criteria ${match.criteria_index} staying RED - cannot downgrade to ${match.status.toUpperCase()}`);
         } else {
-          console.log(`📋 Criteria ${match.criteria_index} already completed with quote: "${existingProgress.quote}" - skipping update`);
+          console.log(`📋 Criteria ${match.criteria_index} unchanged at status ${currentEntry.status.toUpperCase()}`);
         }
+      } else {
+        console.log(`📋 Criteria ${match.criteria_index} produced status ${match.status.toUpperCase()} but no change required`);
+      }
+    }
+
+    if (progressChanged) {
+      await db.collection("checkbox_progress").findOneAndUpdate(
+        { session_id: session._id, group_number: groupNumber },
+        {
+          $set: {
+            session_id: session._id,
+            group_number: groupNumber,
+            progress: progressMap,
+            created_at: progressDoc?.created_at ?? now,
+            updated_at: now
+          }
+        },
+        { upsert: true }
+      );
+      if (progressDoc) {
+        progressDoc.progress = progressMap;
+        progressDoc.updated_at = now;
       }
     }
     
@@ -2488,28 +3092,11 @@ app.post("/api/checkbox/process", express.json(), async (req, res) => {
     const checkboxSessionData = await db.collection("checkbox_sessions").findOne({ session_id: session._id });
     const isReleased = checkboxSessionData?.released_groups?.[groupNumber] || false;
     
-    // Get all current progress for this group
-    const allProgress = await db.collection("checkbox_progress").find({
-      session_id: session._id,
-      group_number: groupNumber
-    }).toArray();
-    
     // Build complete checklist state
     const checklistData = {
       groupNumber: groupNumber,
-      criteria: criteria.map((c, idx) => {
-        const progress = allProgress.find(p => p.criteria_id === c._id);
-        return {
-          id: idx, // stable index based on sorted order_index
-          dbId: c._id,
-          description: c.description,
-          rubric: c.rubric || '',
-          status: progress?.status || 'grey',
-          completed: progress?.completed || false,
-          quote: progress?.quote || null
-        };
-      }),
-      scenario: checkboxSession?.scenario || "",
+      criteria: buildChecklistCriteria(criteriaRecords, progressMap),
+      scenario: checkboxSessionData?.scenario ?? scenario ?? "",
       timestamp: Date.now(),
       isReleased: isReleased,  // Controls student visibility
       sessionCode: sessionCode
@@ -2548,6 +3135,17 @@ app.get("/api/checkbox/:sessionCode", async (req, res) => {
     // Get session info
     const session = await db.collection("sessions").findOne({ code: sessionCode, mode: "checkbox" });
     if (!session) {
+      const pendingSession = activeSessions.get(sessionCode);
+      if (pendingSession && pendingSession.ownerId === teacher.id) {
+        return res.json({
+          success: false,
+          sessionCode,
+          scenario: "",
+          criteriaWithProgress: [],
+          releasedGroups: {},
+          message: "Checkbox session exists in memory but has not been configured yet."
+        });
+      }
       return res.status(404).json({ error: "Checkbox session not found" });
     }
     if (session.owner_id !== teacher.id) {
@@ -2563,20 +3161,48 @@ app.get("/api/checkbox/:sessionCode", async (req, res) => {
       .sort({ order_index: 1, created_at: 1 })
       .toArray();
     
-    // Get progress for each criterion
-    const progress = await db.collection("checkbox_progress")
+    const normalizedCriteria = normalizeCriteriaRecords(criteria);
+    const originalCriteriaById = new Map(criteria.map((item) => [item._id, item]));
+    
+    // Get aggregated progress per group
+    const progressDocs = await db.collection("checkbox_progress")
       .find({ session_id: session._id })
       .toArray();
     
+    const statusPriority = { grey: 0, red: 1, green: 2 };
+    const progressByCriterion = new Map();
+    for (const doc of progressDocs) {
+      const progressMap = doc?.progress || {};
+      for (const [criterionId, entry] of Object.entries(progressMap)) {
+        if (!entry) continue;
+        const current = progressByCriterion.get(criterionId);
+        const newPriority = statusPriority[entry.status ?? 'grey'] ?? 0;
+        const currentPriority = current ? statusPriority[current.status ?? 'grey'] ?? 0 : -1;
+        if (!current || newPriority > currentPriority) {
+          progressByCriterion.set(criterionId, { ...entry, group_number: doc.group_number });
+        }
+      }
+    }
+    
     // Combine criteria with progress
-    const criteriaWithProgress = criteria.map(criterion => {
-      const prog = progress.find(p => p.criteria_id === criterion._id);
+    const criteriaWithProgress = normalizedCriteria.map(criterion => {
+      const entry = progressByCriterion.get(criterion._id);
+      const status = entry?.status ?? 'grey';
+      const completed = status === 'green' || entry?.completed === true;
+      const original = originalCriteriaById.get(criterion._id) || {};
       return {
-        ...criterion,
-        completed: prog?.completed || false,
-        confidence: prog?.confidence || 0,
-        evidence: prog?.evidence || null,
-        completedAt: prog?.completed_at || null
+        ...original,
+        order_index: criterion.order_index,
+        description: criterion.description,
+        rubric: criterion.rubric,
+        weight: criterion.weight,
+        status,
+        completed,
+        confidence: completed ? 1 : status === 'red' ? 0.5 : 0,
+        evidence: entry?.quote ?? null,
+        completedAt: entry?.completed_at ?? null,
+        lastUpdatedAt: entry?.updated_at ?? null,
+        groupNumber: entry?.group_number ?? null
       };
     });
     
@@ -2916,8 +3542,8 @@ async function generateSummaryForGroup(sessionCode, groupNumber) {
   }
 }
 
-// Helper to clean up transcript using Anthropic
-async function cleanTranscriptWithAnthropic(text) {
+// Helper to clean up transcript using OpenAI
+async function cleanTranscriptWithOpenAI(text) {
   return summarise(
     text,
     "Clean up the following transcript for grammar, punctuation, and readability, but do not summarize or remove any content. Only return the cleaned transcript:"
@@ -3218,9 +3844,11 @@ io.on("connection", socket => {
         .find({ session_id: session._id })
         .sort({ order_index: 1, created_at: 1 })
         .toArray();
-      const progress = await db.collection("checkbox_progress")
-        .find({ session_id: session._id, group_number: groupNumber })
-        .toArray();
+      const progressDoc = await db.collection("checkbox_progress").findOne({
+        session_id: session._id,
+        group_number: groupNumber
+      });
+      const progressMap = progressDoc?.progress || {};
       
       // Fallback: if DB has no criteria yet (race on first start), use teacher-provided payload
       const incomingCriteria = Array.isArray(data.criteria) ? data.criteria : [];
@@ -3239,7 +3867,7 @@ io.on("connection", socket => {
       } else {
         // Build from DB first
         finalCriteria = dbCriteria.map((c, idx) => {
-          const prog = progress.find(p => p.criteria_id === c._id);
+          const prog = progressMap[String(c._id)];
           return {
             id: idx,
             dbId: c._id,
@@ -3480,41 +4108,30 @@ async function transcribe(buf, format = 'audio/webm') {
 
 async function summarise(text, customPrompt) {
   try {
-    console.log(`🌐 Calling Anthropic API for summarization`);
+    console.log(`🌐 Calling OpenAI API for summarization`);
     const basePrompt = customPrompt || "Summarise the following classroom discussion in ≤6 clear bullet points:";
-    
-  const body = {
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 800, // Reduced from 2000 - ultra-efficient prompt needs fewer tokens
-      temperature: 0, // Set to 0 for maximum consistency
-    messages: [
-      {
-          role: "user",
-          content: `${basePrompt}\n\n${text}`
-      }
-    ]
-  };
-
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-    headers: {
-        "x-api-key": process.env.ANTHROPIC_KEY,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json"
-    },
-    body: JSON.stringify(body)
-  });
-    
-    if (!res.ok) {
-      console.error(`❌ Anthropic API error: ${res.status} ${res.statusText}`);
-      const errorText = await res.text();
-      console.error("Error response:", errorText);
-      return "Summarization failed";
+    const apiKey = process.env.OPENAI_API_KEY || process.env.OPENAI_KEY;
+    if (!apiKey) {
+      console.warn('⚠️ OpenAI API key not configured; skipping summarisation');
+      return "Summarization unavailable (missing OpenAI key)";
     }
 
-  const j = await res.json();
-    console.log("✅ Anthropic summarization successful");
-  return j.content?.[0]?.text?.trim() ?? "(no summary)";
+    const response = await callOpenAIChat(apiKey, {
+      model: "gpt-4o-mini",
+      maxTokens: 800,
+      temperature: 0,
+      messages: [
+        {
+          role: "user",
+          content: `${basePrompt}
+
+${text}`
+        }
+      ]
+    });
+    const summaryText = response.choices?.[0]?.message?.content?.trim();
+    console.log("✅ OpenAI summarization successful");
+    return summaryText ?? "(no summary)";
   } catch (err) {
     console.error("❌ Summarization error:", err);
     return "Summarization failed";
@@ -3524,11 +4141,15 @@ async function summarise(text, customPrompt) {
 async function processMindmapTranscript(text, mainTopic, existingNodes = []) {
   try {
     console.log(`🧠 Processing transcript for mindmap...`);
-    
     const existingNodesText = existingNodes.length > 0 ? 
       `\n\nExisting mindmap structure:\n${existingNodes.map(node => 
         `${node.level === 0 ? 'MAIN:' : node.level === 1 ? 'TOPIC:' : node.level === 2 ? 'SUBTOPIC:' : 'EXAMPLE:'} ${node.content}`
       ).join('\n')}` : '';
+    const apiKey = process.env.OPENAI_API_KEY || process.env.OPENAI_KEY;
+    if (!apiKey) {
+      console.warn('⚠️ OpenAI API key not configured; returning ignore action');
+      return { action: "ignore", reason: "OpenAI key missing", node: null };
+    }
     
     const prompt = `You are analyzing classroom discussion to build a mindmap. The main topic is: "${mainTopic}"
 
@@ -3554,38 +4175,59 @@ Respond with JSON in this exact format:
 
 Levels: 1=main topic, 2=subtopic, 3=sub-subtopic/example`;
 
-    const body = {
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 300,
+    const response = await callOpenAIChat(apiKey, {
+      model: "gpt-4o-mini",
+      maxTokens: 300,
       temperature: 0.3,
       messages: [
         {
           role: "user",
           content: prompt
         }
-      ]
-    };
-
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": process.env.ANTHROPIC_KEY,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json"
-      },
-      body: JSON.stringify(body)
+      ],
+      responseFormat: {
+        type: "json_schema",
+        json_schema: {
+          name: "mindmap_response",
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            required: ["action", "reason", "node"],
+            properties: {
+              action: {
+                type: "string",
+                enum: ["ignore", "add_node"]
+              },
+              reason: {
+                type: "string",
+                minLength: 1
+              },
+              node: {
+                anyOf: [
+                  { type: "null" },
+                  {
+                    type: "object",
+                    additionalProperties: false,
+                    required: ["content", "level"],
+                    properties: {
+                      content: { type: "string", minLength: 1 },
+                      level: { type: "integer", minimum: 1, maximum: 3 },
+                      parent_id: { type: ["string", "null"] },
+                      note: { type: "string" }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
     });
-    
-    if (!res.ok) {
-      console.error(`❌ Mindmap processing API error: ${res.status} ${res.statusText}`);
-      return { action: "ignore", reason: "API error", node: null };
-    }
-
-    const response = await res.json();
-    const result = JSON.parse(response.content?.[0]?.text?.trim() ?? '{"action": "ignore", "reason": "parsing error", "node": null}');
+    const rawText = response.choices?.[0]?.message?.content?.trim() ?? "";
+    const parsed = parseJsonFromText(rawText) || { action: "ignore", reason: "parsing error", node: null };
     
     console.log("✅ Mindmap processing successful");
-    return result;
+    return parsed;
   } catch (err) {
     console.error("❌ Mindmap processing error:", err);
     return { action: "ignore", reason: "Processing error", node: null };
@@ -3597,10 +4239,10 @@ async function processCheckboxTranscript(text, criteria, scenario = "", strictne
     console.log(`☑️ Processing transcript for 3-state checkbox evaluation (strictness: ${strictness})...`);
     
     // Check if API key is available
-    const apiKey = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_KEY;
+    const apiKey = process.env.OPENAI_API_KEY || process.env.OPENAI_KEY;
     if (!apiKey) {
-      console.log(`🧪 ANTHROPIC API KEY not set - returning mock test data for demonstration`);
-      console.log(`🔍 Checked for: ANTHROPIC_API_KEY and ANTHROPIC_KEY environment variables`);
+      console.log(`🧪 OpenAI API key not set - returning mock test data for demonstration`);
+      console.log(`🔍 Checked for: OPENAI_API_KEY and OPENAI_KEY environment variables`);
       
       // Return mock matches for testing when API key is not available
       const mockMatches = [];
@@ -3630,7 +4272,7 @@ async function processCheckboxTranscript(text, criteria, scenario = "", strictne
       };
     }
     
-    console.log(`✅ Using Anthropic API for ${strictness === 1 ? 'LENIENT' : strictness === 2 ? 'MODERATE' : 'STRICT'} transcript analysis`);
+    console.log(`✅ Using OpenAI API for ${strictness === 1 ? 'LENIENT' : strictness === 2 ? 'MODERATE' : 'STRICT'} transcript analysis`);
     
     // Filter out already GREEN criteria from evaluation
     const criteriaToEvaluate = [];
@@ -3795,68 +4437,55 @@ QUALITY CHECK:
 
 Begin evaluation now:`;
 
-    const body = {
-      model: "claude-sonnet-4-20250514", // Using Claude Sonnet 4 as requested
-      max_tokens: 2000, // Increased for comprehensive prompt and detailed analysis
-      temperature: 0, // Set to 0 for maximum consistency
-      messages: [
-        {
-          role: "user",
-          content: prompt
-        }
-      ]
-    };
-
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json"
-      },
-      body: JSON.stringify(body)
-    });
-    
-    if (!res.ok) {
-      console.error(`❌ Checkbox processing API error: ${res.status} ${res.statusText}`);
-      return { matches: [] };
-    }
-
-    const response = await res.json();
-    const responseText = response.content?.[0]?.text?.trim();
-
-    console.log(`🔍 Anthropic response text: "${responseText?.substring(0, 300)}..."`);
-
-    // Robust JSON extraction that tolerates Markdown code fences and extra text
-    const extractJson = (text) => {
-      if (!text || typeof text !== 'string') return null;
-      let t = text.trim();
-      // Remove fenced blocks ```json ... ```
-      const fenced = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
-      if (fenced) {
-        t = fenced[1].trim();
-      } else {
-        // Strip stray leading/trailing backticks
-        t = t.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
-      }
-      // Direct parse first
-      try {
-        return JSON.parse(t);
-      } catch (_) {
-        // Fallback: extract first JSON object substring
-        const m = t.match(/\{[\s\S]*\}/);
-        if (m) {
-          try {
-            return JSON.parse(m[0]);
-          } catch (_) {
-            return null;
+    let response;
+    try {
+      response = await callOpenAIChat(apiKey, {
+        model: "gpt-4o-mini",
+        maxTokens: 2000, // Increased for comprehensive prompt and detailed analysis
+        temperature: 0,
+        messages: [
+          {
+            role: "user",
+            content: prompt
+          }
+        ],
+        responseFormat: {
+          type: "json_schema",
+          json_schema: {
+            name: "checkbox_progress_evaluation",
+            schema: {
+              type: "object",
+              additionalProperties: false,
+              required: ["matches"],
+              properties: {
+                matches: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    additionalProperties: false,
+                    required: ["criteria_index", "status"],
+                    properties: {
+                      criteria_index: { type: "integer", minimum: 0 },
+                      status: { type: "string", enum: ["green", "red", "grey"] },
+                      quote: { type: ["string", "null"] },
+                      why: { type: ["string", "null"] }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
-        return null;
-      }
-    };
+      });
+    } catch (apiErr) {
+      console.error(`❌ Checkbox processing API error: ${apiErr.message}`);
+      return { matches: [] };
+    }
+    const responseText = response.choices?.[0]?.message?.content?.trim();
 
-    let result = extractJson(responseText) || { matches: [] };
+    console.log(`🔍 OpenAI response text: "${responseText?.substring(0, 300)}..."`);
+
+    let result = parseJsonFromText(responseText) || { matches: [] };
     
     // Validate the result structure
     if (!result || typeof result !== 'object') {
@@ -3871,7 +4500,7 @@ Begin evaluation now:`;
     
     // Validate each match object with 'why' rationale
     result.matches = result.matches.filter(match => {
-      // Coerce criteria_index if Anthropic returns string like 'IDX 6' or '6'
+      // Coerce criteria_index if OpenAI returns string like 'IDX 6' or '6'
       if (typeof match?.criteria_index === 'string') {
         const m = match.criteria_index.match(/(\d+)/);
         if (m) {
@@ -4506,12 +5135,14 @@ async function processTranscriptionForGroup(session, group, transcriptionText, r
       
       // Get checkbox session data and criteria
       const checkboxSession = await db.collection("checkbox_sessions").findOne({ session_id: session._id });
-      const criteria = await db.collection("checkbox_criteria")
+      const criteriaRows = await db.collection("checkbox_criteria")
         .find({ session_id: session._id })
         .sort({ order_index: 1, created_at: 1 })
         .toArray();
       
-      if (criteria.length > 0) {
+      const criteriaRecords = normalizeCriteriaRecords(criteriaRows);
+      
+      if (criteriaRecords.length > 0) {
         // Get the entire conversation so far for this group (full context)
         const allTranscriptsForGroup = appendOutcome.segments;
         
@@ -4520,30 +5151,14 @@ async function processTranscriptionForGroup(session, group, transcriptionText, r
         
         console.log(`📋 Using FULL context for checkbox analysis: ${allTranscriptsForGroup.length} segments`);
         
-        // Get existing progress for this group to avoid re-evaluating GREEN criteria
-        const existingProgressRecords = await db.collection("checkbox_progress")
-          .find({ 
-            session_id: session._id,
-            group_number: groupNumber 
-          })
-          .toArray();
+        const progressDoc = await ensureGroupProgressDoc(session._id, groupNumber, criteriaRecords);
+        const progressMap = progressDoc?.progress || {};
+        if (progressDoc && !progressDoc.progress) {
+          progressDoc.progress = progressMap;
+        }
+        const existingProgress = extractExistingProgress(criteriaRecords, progressMap);
         
-        // Build existing progress array indexed by criteria position
-        const existingProgress = [];
-        criteria.forEach((c, idx) => {
-          const progress = existingProgressRecords.find(p => p.criteria_id === c._id);
-          if (progress) {
-            existingProgress[idx] = {
-              status: progress.status,
-              quote: progress.quote,
-              completed: progress.completed
-            };
-          } else {
-            existingProgress[idx] = null;
-          }
-        });
-        
-        console.log(`📋 Found ${existingProgressRecords.length} existing progress records`);
+        console.log(`📋 Loaded progress map with ${Object.keys(progressMap).length} entries for group ${groupNumber}`);
         const greenCount = existingProgress.filter(p => p && p.status === 'green').length;
         if (greenCount > 0) {
           console.log(`📋 Preserving ${greenCount} GREEN criteria from previous evaluations`);
@@ -4552,7 +5167,12 @@ async function processTranscriptionForGroup(session, group, transcriptionText, r
         // Process through checkbox analysis with concatenated text
         const scenario = checkboxSession?.scenario || "";
         const strictness = session.strictness || 2; // Get strictness from session, default to moderate
-        const checkboxResult = await processCheckboxTranscript(concatenatedText.trim(), criteria, scenario, strictness, existingProgress);
+        const aiCriteria = criteriaRecords.map((criterion, index) => ({
+          originalIndex: typeof criterion.originalIndex === 'number' ? criterion.originalIndex : index,
+          description: criterion.description,
+          rubric: criterion.rubric
+        }));
+        const checkboxResult = await processCheckboxTranscript(concatenatedText.trim(), aiCriteria, scenario, strictness, existingProgress);
         
         // Log the checkbox processing result
         await db.collection("session_logs").insertOne({
@@ -4566,80 +5186,57 @@ async function processTranscriptionForGroup(session, group, transcriptionText, r
         
         // Update progress for matched criteria
         const progressUpdates = [];
+        let progressChanged = false;
         for (const match of checkboxResult.matches) {
-          const criterion = criteria[match.criteria_index];
-          if (criterion) {
-            // Check existing progress to implement proper locking rules
-            const existingProgress = await db.collection("checkbox_progress").findOne({
-              session_id: session._id,
-              criteria_id: criterion._id
+          const criterion = criteriaRecords[match.criteria_index];
+          if (!criterion) continue;
+
+          const criterionKey = String(criterion._id);
+          const currentEntry = progressMap[criterionKey];
+          const { updated, entry } = applyMatchToProgressEntry(currentEntry, match.status, match.quote, now);
+
+          if (updated) {
+            progressMap[criterionKey] = entry;
+            progressChanged = true;
+            progressUpdates.push({
+              criteriaId: match.criteria_index,
+              criteriaDbId: criterion._id,
+              description: criterion.description,
+              completed: entry.completed,
+              quote: entry.quote,
+              status: entry.status
             });
-            
-            // Implement locking rules:
-            // 1. GREEN stays GREEN forever (locked)
-            // 2. GREY has no quotes and can become RED or GREEN
-            // 3. RED can become GREEN but not GREY
-            let shouldUpdate = false;
-            let newStatus = match.status;
-            let newQuote = match.status === 'grey' ? null : match.quote; // Grey has no quotes
-            
-            if (!existingProgress) {
-              // No existing progress - always update
-              shouldUpdate = true;
-            } else if (existingProgress.status === 'green') {
-              // GREEN is locked - never update
-              console.log(`📋 Criteria ${match.criteria_index} already GREEN (locked) with quote: "${existingProgress.quote}" - skipping update`);
-              shouldUpdate = false;
-            } else if (existingProgress.status === 'grey') {
-              // GREY can become RED or GREEN
-              if (match.status === 'red' || match.status === 'green') {
-                shouldUpdate = true;
-                console.log(`📋 Criteria ${match.criteria_index} upgrading from GREY to ${match.status.toUpperCase()}`);
-              }
-            } else if (existingProgress.status === 'red') {
-              // RED can only become GREEN
-              if (match.status === 'green') {
-                shouldUpdate = true;
-                console.log(`📋 Criteria ${match.criteria_index} upgrading from RED to GREEN`);
-              } else {
-                console.log(`📋 Criteria ${match.criteria_index} staying RED - cannot downgrade to ${match.status.toUpperCase()}`);
-                shouldUpdate = false;
-              }
-            }
-            
-            if (shouldUpdate) {
-              await db.collection("checkbox_progress").findOneAndUpdate(
-                { 
-                  session_id: session._id,
-                  criteria_id: criterion._id,
-                  group_number: groupNumber  // Add group_number to the query
-                },
-                {
-                  $set: {
-                    completed: newStatus === 'green', // Only mark as completed if green
-                    quote: newQuote, // No quote for grey status
-                    status: newStatus,
-                    completed_at: now,
-                    group_number: groupNumber  // Ensure group_number is set
-                  }
-                },
-                { upsert: true }
-              );
-              
-              // Emit using both stable DB criteria_id and display index to avoid off-by-one errors
-              progressUpdates.push({
-                criteriaId: match.criteria_index,
-                criteriaDbId: criterion._id,
-                description: criterion.description,
-                completed: match.status === 'green',
-                quote: match.quote,
-                status: match.status
-              });
-              
-              console.log(`📋 Checkbox update for criteria idx=${match.criteria_index} (_id=${criterion._id}): "${match.quote}" - STATUS: ${match.status}`);
+            console.log(`📋 Checkbox update for criteria idx=${match.criteria_index} (_id=${criterion._id}): "${match.quote}" - STATUS: ${entry.status}`);
+          } else if (currentEntry) {
+            if (currentEntry.status === 'green') {
+              console.log(`📋 Criteria ${match.criteria_index} already GREEN (locked) with quote: "${currentEntry.quote}" - skipping update`);
+            } else if (currentEntry.status === 'red' && match.status !== 'green') {
+              console.log(`📋 Criteria ${match.criteria_index} staying RED - cannot downgrade to ${match.status.toUpperCase()}`);
             } else {
-              console.log(`📋 Criteria ${match.criteria_index} already completed with quote: "${existingProgress.quote}" - skipping update`);
+              console.log(`📋 Criteria ${match.criteria_index} unchanged at status ${currentEntry.status.toUpperCase()}`);
             }
+          } else {
+            console.log(`📋 Criteria ${match.criteria_index} produced status ${match.status.toUpperCase()} but no change required`);
+          }
+        }
+        
+        if (progressChanged) {
+          await db.collection("checkbox_progress").findOneAndUpdate(
+            { session_id: session._id, group_number: groupNumber },
+            {
+              $set: {
+                session_id: session._id,
+                group_number: groupNumber,
+                progress: progressMap,
+                created_at: progressDoc?.created_at ?? now,
+                updated_at: now
+              }
+            },
+            { upsert: true }
+          );
+          if (progressDoc) {
+            progressDoc.progress = progressMap;
+            progressDoc.updated_at = now;
           }
         }
         
@@ -4653,33 +5250,13 @@ async function processTranscriptionForGroup(session, group, transcriptionText, r
           isActive: true
         });
         
-        
         // NEW: Also emit full checklist state to both teachers and students
-        // Get the current release state from database
-        const checkboxSessionData = await db.collection("checkbox_sessions").findOne({ session_id: session._id });
-        const isReleased = checkboxSessionData?.released_groups?.[groupNumber] || false;
-        
-        // Get all current progress for this group
-        const allProgress = await db.collection("checkbox_progress").find({
-          session_id: session._id,
-          group_number: groupNumber
-        }).toArray();
+        const isReleased = checkboxSession?.released_groups?.[groupNumber] || false;
         
         // Build complete checklist state
         const checklistData = {
           groupNumber: groupNumber,
-          criteria: criteria.map((c, idx) => {
-            const progress = allProgress.find(p => p.criteria_id === c._id);
-            return {
-              id: idx, // stable index based on sorted order_index
-              dbId: c._id,
-              description: c.description,
-              rubric: c.rubric || '',
-              status: progress?.status || 'grey',
-              completed: progress?.completed || false,
-              quote: progress?.quote || null
-            };
-          }),
+          criteria: buildChecklistCriteria(criteriaRecords, progressMap),
           scenario: checkboxSession?.scenario || "",
           timestamp: Date.now(),
           isReleased: isReleased,  // Controls student visibility
@@ -4911,6 +5488,7 @@ app.post("/api/transcribe-mindmap-chunk", upload.single('file'), async (req, res
       // Generate initial mindmap with contextual transcript
       console.log(`🧠 Generating initial mindmap from transcript...`);
       mindmapData = await generateInitialMindmap(contextualTranscript, session.main_topic);
+      ensureMindmapNodeIds(mindmapData);
       
       if (mindmapData) {
         // Store the initial mindmap
@@ -4922,6 +5500,24 @@ app.post("/api/transcribe-mindmap-chunk", upload.single('file'), async (req, res
               last_updated: new Date()
             }
           }
+        );
+        await db.collection("mindmap_sessions").updateOne(
+          { session_id: session._id },
+          {
+            $set: {
+              current_mindmap: mindmapData,
+              main_topic: session.main_topic,
+              updated_at: Date.now()
+            },
+            $push: {
+              chat_history: {
+                type: 'user',
+                content: transcript,
+                timestamp: Date.now()
+              }
+            }
+          },
+          { upsert: true }
         );
         
         result = {
@@ -4945,23 +5541,49 @@ app.post("/api/transcribe-mindmap-chunk", upload.single('file'), async (req, res
       // Expand existing mindmap with contextual transcript
       console.log(`🧠 Expanding mindmap with contextual speech...`);
       const expansionResult = await expandMindmap(contextualTranscript, currentMindmapData, session.main_topic);
-      
+
       if (!expansionResult.filtered) {
-        // Update mindmap in database
+        let mergedMindmap = expansionResult.updatedMindmap;
+        const latestStoredMindmap = await getMindmapData(sessionCode);
+        if (latestStoredMindmap) {
+          mergedMindmap = mergeLegacyMindmapTrees(mergedMindmap, latestStoredMindmap);
+        }
+        ensureMindmapNodeIds(mergedMindmap);
+
         await db.collection("sessions").updateOne(
           { code: sessionCode },
-          { 
-            $set: { 
-              mindmap_data: expansionResult.updatedMindmap,
+          {
+            $set: {
+              mindmap_data: mergedMindmap,
               last_updated: new Date()
             }
           }
         );
-        
-        mindmapData = expansionResult.updatedMindmap;
+
+        mindmapData = mergedMindmap;
       } else {
-        mindmapData = currentMindmapData; // Keep existing mindmap unchanged
+        const latestStoredMindmap = await getMindmapData(sessionCode);
+        mindmapData = latestStoredMindmap || currentMindmapData; // Keep existing mindmap unchanged
       }
+
+      await db.collection("mindmap_sessions").updateOne(
+        { session_id: session._id },
+        {
+          $set: {
+            current_mindmap: mindmapData,
+            main_topic: session.main_topic,
+            updated_at: Date.now()
+          },
+          $push: {
+            chat_history: {
+              type: 'user',
+              content: transcript,
+              timestamp: Date.now()
+            }
+          }
+        },
+        { upsert: true }
+      );
       
       result = {
         success: true,
@@ -5115,41 +5737,109 @@ app.get("/api/data/sessions", async (req, res) => {
           .findOne({ session_id: session._id });
         const mindmapArchive = await db.collection("mindmap_archives")
           .findOne({ session_id: session._id });
+        const mindmapTree = mindmapArchive?.mindmap_data || mindmapSession?.current_mindmap || null;
+        const computedNodeCount = mindmapArchive?.node_count ?? countMindmapNodes(mindmapTree);
         
         sessionData.modeSpecificData = {
           mainTopic: mindmapSession?.main_topic || session.main_topic,
-          nodeCount: mindmapArchive?.node_count || 0,
+          nodeCount: computedNodeCount,
           chatHistory: mindmapSession?.chat_history || [],
-          mindmapData: mindmapArchive?.mindmap_data || mindmapSession?.current_mindmap
+          mindmapData: mindmapTree
         };
       } else if (session.mode === 'checkbox') {
         const checkboxSession = await db.collection("checkbox_sessions")
           .findOne({ session_id: session._id });
-        const criteria = await db.collection("checkbox_criteria")
+        const criteriaRows = await db.collection("checkbox_criteria")
           .find({ session_id: session._id })
           .sort({ order_index: 1, created_at: 1 })
           .toArray();
-        const progress = await db.collection("checkbox_progress")
+        const normalizedCriteria = normalizeCriteriaRecords(criteriaRows);
+        const originalCriteriaById = new Map(criteriaRows.map((item) => [item._id, item]));
+
+        const progressDocs = await db.collection("checkbox_progress")
           .find({ session_id: session._id })
           .toArray();
         
-        const completedCount = progress.filter(p => p.completed).length;
-        const totalCriteria = criteria.length;
+        const statusPriority = { grey: 0, red: 1, green: 2 };
+        const progressByCriterion = new Map();
+        const groupSummaryByNumber = new Map(
+          sessionData.groups.map(group => [group.number, { groupNumber: group.number, completed: 0, total: normalizedCriteria.length }])
+        );
+
+        for (const doc of progressDocs) {
+          const progressMap = doc?.progress || {};
+          let groupCompleted = 0;
+          for (const [criterionId, entry] of Object.entries(progressMap)) {
+            if (!entry) continue;
+            const current = progressByCriterion.get(criterionId);
+            const newPriority = statusPriority[entry.status ?? 'grey'] ?? 0;
+            const currentPriority = current ? statusPriority[current.status ?? 'grey'] ?? 0 : -1;
+            if (!current || newPriority > currentPriority) {
+              progressByCriterion.set(criterionId, { ...entry, group_number: doc.group_number });
+            }
+            if (entry.status === 'green' || entry.completed === true) {
+              groupCompleted += 1;
+            }
+          }
+          if (groupSummaryByNumber.has(doc.group_number)) {
+            groupSummaryByNumber.set(doc.group_number, {
+              groupNumber: doc.group_number,
+              completed: groupCompleted,
+              total: normalizedCriteria.length,
+              updatedAt: doc.updated_at ?? null
+            });
+          } else {
+            groupSummaryByNumber.set(doc.group_number, {
+              groupNumber: doc.group_number,
+              completed: groupCompleted,
+              total: normalizedCriteria.length,
+              updatedAt: doc.updated_at ?? null
+            });
+          }
+        }
+        
+        const totalCriteria = normalizedCriteria.length;
+        let completedCount = 0;
+        const criteriaWithProgress = normalizedCriteria.map(criterion => {
+          const entry = progressByCriterion.get(criterion._id);
+          const status = entry?.status ?? 'grey';
+          const completed = status === 'green' || entry?.completed === true;
+          if (completed) completedCount += 1;
+          const original = originalCriteriaById.get(criterion._id) || {};
+          return {
+            ...original,
+            id: String(criterion._id),
+            description: criterion.description,
+            rubric: criterion.rubric,
+            weight: criterion.weight,
+            order_index: criterion.order_index,
+            status,
+            completed,
+            quote: entry?.quote ?? null,
+            completedAt: entry?.completed_at ?? null,
+            groupNumber: entry?.group_number ?? null
+          };
+        });
+        const boundedCompleted = totalCriteria > 0 ? Math.min(completedCount, totalCriteria) : completedCount;
+        const completionRate = totalCriteria > 0
+          ? Math.min(100, Math.round((boundedCompleted / totalCriteria) * 100))
+          : 0;
+        const groupProgressSummary = Array.from(groupSummaryByNumber.values())
+          .sort((a, b) => a.groupNumber - b.groupNumber)
+          .map(summary => ({
+            groupNumber: summary.groupNumber,
+            completed: summary.completed,
+            total: summary.total,
+            updatedAt: summary.updatedAt ?? null
+          }));
         
         sessionData.modeSpecificData = {
           scenario: checkboxSession?.scenario || "",
-          totalCriteria: totalCriteria,
-          completedCriteria: completedCount,
-          completionRate: totalCriteria > 0 ? Math.round((completedCount / totalCriteria) * 100) : 0,
-          criteria: criteria.map(c => {
-            const prog = progress.find(p => p.criteria_id === c._id);
-            return {
-              description: c.description,
-              completed: prog?.completed || false,
-              quote: prog?.quote || null,
-              completedAt: prog?.completed_at || null
-            };
-          })
+          totalCriteria,
+          completedCriteria: boundedCompleted,
+          completionRate,
+          criteria: criteriaWithProgress,
+          groupProgress: groupProgressSummary
         };
       }
       

@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mindmap Playground</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <link rel="stylesheet" href="/styles/theme.css">
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background: linear-gradient(160deg, #e0f2fe 0%, #f9fafb 45%, #eef2ff 100%);
+      margin: 0;
+      padding: 24px;
+      color: #0f172a;
+    }
+    h1 {
+      margin-bottom: 12px;
+    }
+    .container {
+      max-width: 960px;
+      margin: 0 auto;
+    }
+    form {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      background: rgba(255,255,255,0.85);
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    form input, form select {
+      flex: 1 1 220px;
+      padding: 10px 12px;
+      border: 1px solid rgba(148, 163, 184, 0.6);
+      border-radius: 8px;
+      font-size: 14px;
+    }
+    form select#layoutModeSelect {
+      flex: 0 0 180px;
+    }
+    form button,
+    form select#layoutModeSelect {
+      padding: 10px 18px;
+      border-radius: 8px;
+      border: none;
+      background: linear-gradient(135deg, #60a5fa, #38bdf8);
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.1s ease, box-shadow 0.15s ease;
+    }
+    form button:hover,
+    form select#layoutModeSelect:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 12px 20px -16px rgba(14, 116, 144, 0.65);
+    }
+    form button.danger {
+      background: linear-gradient(135deg, #f87171, #ef4444);
+    }
+    .playground-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 260px;
+      gap: 24px;
+      align-items: start;
+      margin-top: 20px;
+    }
+    .mindmap-shell {
+      background: linear-gradient(140deg, rgba(248, 250, 252, 0.95), rgba(219, 234, 254, 0.75));
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      border-radius: 16px;
+      box-shadow: inset 0 1px 2px rgba(148, 163, 184, 0.2);
+      padding: 12px;
+      position: relative;
+    }
+    #mindmapCanvas {
+      height: 520px;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .canvas-controls {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .canvas-controls button {
+      padding: 7px 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.45);
+      background: rgba(241, 245, 249, 0.85);
+      color: #0f172a;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.12s ease, box-shadow 0.12s ease;
+    }
+    .canvas-controls button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 18px -16px rgba(59, 130, 246, 0.6);
+    }
+    .canvas-controls button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+    .sidebar {
+      position: sticky;
+      top: 88px;
+      background: rgba(255,255,255,0.94);
+      border: 1px solid rgba(148,163,184,0.35);
+      box-shadow: 0 18px 40px -28px rgba(15, 23, 42, 0.38);
+      border-radius: 16px;
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .sidebar-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .sidebar-header .title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #0f172a;
+    }
+    .sidebar-header .mode-tag {
+      font-size: 11px;
+      background: rgba(59, 130, 246, 0.16);
+      color: #1d4ed8;
+      padding: 2px 8px;
+      border-radius: 999px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .sidebar-muted {
+      font-size: 12px;
+      color: #64748b;
+      margin: 0;
+    }
+    .sidebar-selected .label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #94a3b8;
+      margin-bottom: 4px;
+    }
+    .sidebar-selected .value {
+      font-size: 13px;
+      font-weight: 600;
+      color: #0f172a;
+    }
+    .sidebar-selected.hidden {
+      display: none;
+    }
+    .sidebar-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .sidebar-actions.disabled button {
+      opacity: 0.5;
+      pointer-events: none;
+    }
+    .sidebar-actions button {
+      padding: 9px 12px;
+      border: none;
+      border-radius: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: left;
+      background: linear-gradient(135deg, #6366f1, #3b82f6);
+      color: #fff;
+      transition: transform 0.1s ease, box-shadow 0.15s ease;
+    }
+    .sidebar-actions button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 18px 24px -22px rgba(59, 130, 246, 0.8);
+    }
+    .sidebar-actions button.danger {
+      background: linear-gradient(135deg, #f87171, #ef4444);
+    }
+    .sidebar-examples {
+      border-top: 1px solid rgba(148, 163, 184, 0.25);
+      padding-top: 12px;
+      font-size: 12px;
+      color: #0f172a;
+      min-height: 60px;
+    }
+    .sidebar-examples ul {
+      margin: 8px 0 0 16px;
+      padding: 0;
+      color: #0f172a;
+    }
+    .sidebar-examples li {
+      margin-bottom: 6px;
+    }
+    .example-item {
+      background: rgba(248, 250, 252, 0.8);
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      border-radius: 6px;
+      padding: 8px 10px;
+      margin-bottom: 6px;
+      font-size: 11px;
+      color: #475569;
+    }
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-bottom: 12px;
+    }
+    .control-group label {
+      font-size: 11px;
+      font-weight: 600;
+      color: #475569;
+    }
+    .control-group input {
+      padding: 6px 8px;
+      border: 1px solid rgba(148, 163, 184, 0.4);
+      border-radius: 6px;
+      font-size: 12px;
+      width: 100%;
+    }
+    .mindmap-node circle.node-selected {
+      filter: drop-shadow(0 0 12px rgba(234, 179, 8, 0.8));
+    }
+    .sidebar-error {
+      color: #dc2626;
+      font-size: 12px;
+    }
+    .mindmap-link {
+      fill: none;
+      stroke: rgba(148, 163, 184, 0.5);
+      stroke-width: 1.4;
+    }
+    .mindmap-node circle {
+      cursor: grab;
+      transition: transform 0.15s ease, filter 0.2s ease;
+      filter: drop-shadow(0 6px 12px rgba(15, 23, 42, 0.16));
+    }
+    .mindmap-node.dragging circle,
+    .mindmap-node:hover circle {
+      transform: scale(1.05);
+      filter: drop-shadow(0 12px 20px rgba(15, 23, 42, 0.25));
+    }
+    .mindmap-node text {
+      font-family: 'Inter', sans-serif;
+      fill: #1f2937;
+      font-size: 12px;
+      pointer-events: none;
+    }
+    .mindmap-node circle.selected {
+      stroke: #fbbf24;
+      stroke-width: 4;
+      filter: drop-shadow(0 0 12px rgba(234, 179, 8, 0.45));
+    }
+    .node-popover {
+      animation: fadeIn 0.15s ease-out;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Mindmap Playground</h1>
+    <p style="margin-top:-4px;margin-bottom:20px;color:#475569;">Quickly prototype node layouts. Add ideas below and click a node to unlock more tools.</p>
+    <form id="nodeForm">
+      <select id="parentSelect"></select>
+      <input id="nodeLabel" type="text" placeholder="Node text..." required>
+      <select id="layoutModeSelect" title="Layout mode">
+        <option value="right" selected>Branch to the right</option>
+        <option value="both">Branch both directions</option>
+      </select>
+      <button type="submit">Add Node</button>
+      <button type="button" id="loadExampleBtn">Load Example</button>
+      <button type="button" id="resetBtn" class="danger">Reset</button>
+    </form>
+
+    <div class="playground-layout">
+      <div class="mindmap-shell">
+        <div class="canvas-controls">
+          <button type="button" id="recenterBtn">Re-center view</button>
+        </div>
+        <div id="mindmapCanvas"></div>
+      </div>
+      <aside id="nodeSidebar" class="sidebar">
+        <div class="sidebar-header">
+          <div class="title">Node tools</div>
+          <div id="sidebarMode" class="mode-tag">Mode: right only</div>
+        </div>
+        <p id="sidebarHint" class="sidebar-muted">Click a node on the canvas to unlock more actions.</p>
+        <div id="sidebarSelected" class="sidebar-selected hidden">
+          <div class="label">Selected node</div>
+          <div id="sidebarNodeLabel" class="value">None</div>
+        </div>
+        <div id="sidebarActions" class="sidebar-actions disabled">
+          <div class="control-group">
+            <label for="exampleCount">Number of examples:</label>
+            <input type="number" id="exampleCount" value="2" min="1" max="10" />
+          </div>
+          <button id="generateExamplesBtn">⚡ Generate examples</button>
+          <button id="customNodeBtn">✏️ Custom</button>
+          <button id="deleteNodeBtn" class="danger">🗑️ Remove node</button>
+        </div>
+        <div id="sidebarExamples" class="sidebar-examples">
+          <p class="sidebar-muted">Generated examples will appear here.</p>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    let mindmapData = {
+      name: 'Lesson Topic',
+      children: [
+        { name: 'Main Idea A', children: [] },
+        { name: 'Main Idea B', children: [] }
+      ]
+    };
+
+
+    const parentSelect = document.getElementById('parentSelect');
+    const nodeForm = document.getElementById('nodeForm');
+    const nodeLabelInput = document.getElementById('nodeLabel');
+    const layoutModeSelect = document.getElementById('layoutModeSelect');
+    const sidebar = document.getElementById('nodeSidebar');
+    const sidebarMode = document.getElementById('sidebarMode');
+    const sidebarHint = document.getElementById('sidebarHint');
+    const sidebarSelected = document.getElementById('sidebarSelected');
+    const sidebarNodeLabel = document.getElementById('sidebarNodeLabel');
+    const sidebarActions = document.getElementById('sidebarActions');
+    const sidebarExamples = document.getElementById('sidebarExamples');
+    const generateExamplesBtn = document.getElementById('generateExamplesBtn');
+    const customNodeBtn = document.getElementById('customNodeBtn');
+    const deleteNodeBtn = document.getElementById('deleteNodeBtn');
+    const exampleCountInput = document.getElementById('exampleCount');
+    const recenterBtn = document.getElementById('recenterBtn');
+
+    let layoutMode = 'right';
+    let selectedNodePath = null;
+    let zoomBehavior = null;
+    let currentZoomTransform = null;
+    let lastFitTransform = null;
+    let svgSelection = null;
+
+    function assignPathsToData(node, pathSegments = []) {
+      const fullPath = pathSegments.length ? `root.${pathSegments.join('.')}` : 'root';
+      node._path = fullPath;
+      (node.children || []).forEach((child, idx) => assignPathsToData(child, [...pathSegments, idx]));
+    }
+
+    function assignBranchesToData(node, branch = 1) {
+      node._branch = branch;
+      (node.children || []).forEach((child, idx) => {
+        const childBranch = layoutMode === 'both'
+          ? (node === mindmapData ? (idx % 2 === 0 ? 1 : -1) : branch)
+          : 1;
+        assignBranchesToData(child, childBranch);
+      });
+    }
+
+    function flattenNodes(root) {
+      const list = [];
+      function walk(node) {
+        const id = node._path || 'root';
+        const depth = id === 'root' ? 0 : id.split('.').length - 1;
+        list.push({ id, label: node.name, node, depth });
+        (node.children || []).forEach(child => walk(child));
+      }
+      walk(root);
+      return list;
+    }
+
+    function refreshParentOptions() {
+      assignPathsToData(mindmapData);
+      const nodes = flattenNodes(mindmapData);
+      parentSelect.innerHTML = nodes.map(entry => {
+        const indent = '&nbsp;'.repeat(entry.depth * 4);
+        const label = entry.depth === 0 ? `(root) ${entry.label}` : entry.label;
+        return `<option value="${entry.id}">${indent}${label}</option>`;
+      }).join('');
+    }
+
+
+    function clearSelection() {
+      selectedNodePath = null;
+      d3.selectAll(".mindmap-node circle").classed("node-selected", false);
+      sidebarHint.classList.remove('hidden');
+      sidebarSelected.classList.add('hidden');
+      sidebarActions.classList.add('disabled');
+      sidebarNodeLabel.textContent = 'None';
+      sidebarExamples.innerHTML = '<p class="sidebar-muted">Generated examples will appear here.</p>';
+    }
+
+    function updateSidebarForNode(node) {
+      sidebarHint.classList.add('hidden');
+      sidebarSelected.classList.remove('hidden');
+      sidebarActions.classList.remove('disabled');
+      sidebarNodeLabel.textContent = node.name || 'Untitled node';
+      sidebarExamples.innerHTML = '<p class="sidebar-muted">Use “Generate examples” to explore ideas.</p>';
+    }
+
+    function normalizeLabel(text) {
+      if (typeof text !== 'string') return '';
+      let cleaned = text.trim();
+      cleaned = cleaned.replace(/^["'`]+|["'`]+$/g, '');
+      cleaned = cleaned.replace(/^\d+[\s\.\)\-:]*\s*/, '');
+      cleaned = cleaned.replace(/^[-*•]+\s*/, '');
+      cleaned = cleaned.replace(/\s+/g, ' ');
+      return cleaned.trim();
+    }
+
+    function escapeHtml(value) {
+      return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function getStrandForPath(pathStr) {
+      const names = [];
+      if (!mindmapData) return names;
+      const safeRoot = mindmapData.name || 'Root';
+      names.push(safeRoot);
+      if (!pathStr || pathStr === 'root') return names;
+      const segments = pathStr.split('.').slice(1).map(Number);
+      let node = mindmapData;
+      for (const idx of segments) {
+        if (!node.children || !node.children[idx]) break;
+        node = node.children[idx];
+        names.push(node.name || 'Untitled node');
+      }
+      return names;
+    }
+
+    function getNodeByPath(pathStr) {
+      if (!pathStr || pathStr === 'root') return mindmapData;
+      const segments = pathStr.split('.').slice(1).map(Number);
+      let node = mindmapData;
+      for (const idx of segments) {
+        if (!node.children || !node.children[idx]) return null;
+        node = node.children[idx];
+      }
+      return node;
+    }
+
+    nodeForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const label = nodeLabelInput.value.trim();
+      if (!label) return;
+      const parent = getNodeByPath(parentSelect.value);
+      if (!parent) return;
+      parent.children = parent.children || [];
+      parent.children.push({ name: label, children: [] });
+      nodeLabelInput.value = '';
+      refreshParentOptions();
+      renderMindmap(mindmapData);
+    });
+
+    layoutModeSelect.addEventListener('change', (event) => {
+      layoutMode = event.target.value;
+      sidebarMode.textContent = `Mode: ${layoutMode === 'both' ? 'both sides' : 'right only'}`;
+      renderMindmap(mindmapData);
+    });
+
+    document.getElementById('resetBtn').addEventListener('click', () => {
+      mindmapData = { name: 'Lesson Topic', children: [] };
+      currentZoomTransform = null;
+      clearSelection();
+      refreshParentOptions();
+      renderMindmap(mindmapData);
+    });
+
+    document.getElementById('loadExampleBtn').addEventListener('click', () => {
+      mindmapData = {
+        name: 'Why is Educational Technology Important?',
+        children: [
+          {
+            name: 'Enhanced Learning Experience',
+            children: [
+              {
+                name: 'Interactive multimedia content',
+                children: [
+                  { name: 'Video lessons and tutorials', children: [] },
+                  { name: 'Interactive simulations', children: [] },
+                  { name: '3D modeling and visualization', children: [] }
+                ]
+              },
+              {
+                name: 'Gamification of learning',
+                children: [
+                  { name: 'Educational games and apps', children: [] },
+                  { name: 'Achievement systems and badges', children: [] },
+                  { name: 'Competitive learning platforms', children: [] }
+                ]
+              }
+            ]
+          },
+          {
+            name: 'Accessibility and Inclusion',
+            children: [
+              {
+                name: 'Assistive technologies',
+                children: [
+                  { name: 'Screen readers and text-to-speech', children: [] },
+                  { name: 'Voice recognition software', children: [] },
+                  { name: 'Adaptive keyboards and mice', children: [] }
+                ]
+              },
+              {
+                name: 'Universal design for learning',
+                children: [
+                  { name: 'Multiple representation formats', children: [] },
+                  { name: 'Flexible engagement options', children: [] },
+                  { name: 'Customizable learning environments', children: [] }
+                ]
+              }
+            ]
+          },
+          {
+            name: 'Personalized Education',
+            children: [
+              {
+                name: 'AI-powered tutoring systems',
+                children: [
+                  { name: 'Intelligent tutoring systems', children: [] },
+                  { name: 'Chatbots for student support', children: [] },
+                  { name: 'Automated feedback systems', children: [] }
+                ]
+              },
+              {
+                name: 'Learning analytics and data',
+                children: [
+                  { name: 'Progress tracking and monitoring', children: [] },
+                  { name: 'Predictive analytics for at-risk students', children: [] },
+                  { name: 'Data-driven curriculum adjustments', children: [] }
+                ]
+              }
+            ]
+          },
+          {
+            name: 'Real-World Examples',
+            children: [
+              { name: 'Khan Academy platform', children: [] },
+              { name: 'Google Classroom integration', children: [] },
+              { name: 'Coding bootcamps online', children: [] },
+              { name: 'STEM simulation software', children: [] },
+              { name: 'Language learning apps', children: [] }
+            ]
+          }
+        ]
+      };
+      currentZoomTransform = null;
+      clearSelection();
+      refreshParentOptions();
+      renderMindmap(mindmapData);
+    });
+
+    function renderMindmap(data) {
+      const container = document.getElementById('mindmapCanvas');
+      const width = container.clientWidth || 900;
+      const height = container.clientHeight || 520;
+      const hMargin = 160;
+      const vOffset = 70;
+
+      sidebarMode.textContent = `Mode: ${layoutMode === 'both' ? 'both sides' : 'right only'}`;
+      assignPathsToData(mindmapData);
+      assignBranchesToData(mindmapData, 1);
+
+      container.innerHTML = '';
+
+      svgSelection = d3.select(container)
+        .append('svg')
+        .attr('width', width)
+        .attr('height', height);
+
+      const svg = svgSelection;
+      const g = svg.append('g');
+
+      const tree = d3.tree()
+        .nodeSize([70, 260])
+        .separation((a, b) => (a.parent === b.parent ? 1.6 : 2.2));
+
+      const root = d3.hierarchy(data);
+      tree(root);
+
+      root.descendants().forEach(node => {
+        node._offset = node._offset || { x: 0, y: 0 };
+      });
+
+      function coords(node) {
+        const offset = node._offset || { x: 0, y: 0 };
+        if (layoutMode === 'both') {
+          const branch = node.data._branch || 1;
+          if (node.depth === 0) {
+            return {
+              x: width / 2 + offset.x,
+              y: node.x + vOffset + offset.y
+            };
+          }
+          return {
+            x: width / 2 + branch * (node.y + hMargin) + offset.x,
+            y: node.x + vOffset + offset.y
+          };
+        }
+        return {
+          x: node.y + hMargin + offset.x,
+          y: node.x + vOffset + offset.y
+        };
+      }
+
+      const typeColor = ['#2563eb', '#3b82f6', '#0ea5e9', '#f97316'];
+
+      function linkPath(link) {
+        const source = coords(link.source);
+        const target = coords(link.target);
+        const midX = (source.x + target.x) / 2;
+        return `M${source.x},${source.y}C${midX},${source.y} ${midX},${target.y} ${target.x},${target.y}`;
+      }
+
+      const link = g.append('g')
+        .selectAll('path')
+        .data(root.links())
+        .enter()
+        .append('path')
+        .attr('class', 'mindmap-link')
+        .attr('d', linkPath);
+
+      const node = g.append('g')
+        .selectAll('g')
+        .data(root.descendants())
+        .enter()
+        .append('g')
+        .attr('class', 'mindmap-node')
+        .attr('transform', d => {
+          const { x, y } = coords(d);
+          return `translate(${x},${y})`;
+        });
+
+      node.append('circle')
+        .attr('r', d => [18, 14, 12, 10][Math.min(d.depth, 3)])
+        .attr('fill', d => typeColor[Math.min(d.depth, 3)])
+        .attr('stroke', '#fff')
+        .attr('stroke-width', 2);
+
+      node.each(function(d) {
+        const words = (d.data.name || '').split(/\s+/).filter(Boolean);
+        const maxChars = d.depth === 0 ? 20 : 24;
+        const lines = [];
+        let current = [];
+        words.forEach(word => {
+          const next = [...current, word].join(' ');
+          if (next.length > maxChars) {
+            if (current.length) lines.push(current.join(' '));
+            current = [word];
+          } else {
+            current.push(word);
+          }
+        });
+        if (current.length) lines.push(current.join(' '));
+        if (lines.length === 0) lines.push('');
+
+        const text = d3.select(this)
+          .append('text')
+          .attr('font-weight', d.depth === 0 ? '600' : '500')
+          .attr('font-size', d.depth === 0 ? '14px' : '12px')
+          .attr('text-anchor', d.depth === 0 ? 'middle' : 'start');
+
+        const lineHeight = 16;
+        const startX = d.depth === 0 ? 0 : 28;
+        const startY = d.depth === 0
+          ? -(lines.length * lineHeight) - 28
+          : -((lines.length - 1) / 2) * lineHeight;
+
+        lines.forEach((line, i) => {
+          text.append('tspan')
+            .attr('x', startX)
+            .attr('y', startY + i * lineHeight)
+            .text(line);
+        });
+      });
+
+      const activeNode = selectedNodePath ? getNodeByPath(selectedNodePath) : null;
+      if (activeNode && selectedNodePath) {
+        node.filter(d => d.data._path === selectedNodePath)
+          .select('circle')
+          .classed('node-selected', true);
+      } else if (selectedNodePath && !activeNode) {
+        clearSelection();
+      }
+
+      function getNodePosition(d) {
+        return coords(d);
+      }
+
+      node.on('click', function(event, d) {
+        event.stopPropagation();
+        
+        // Remove previous selection from all nodes
+        d3.selectAll('.mindmap-node circle').classed('node-selected', false);
+        
+        // Add selection to clicked node's circle only
+        d3.select(this).select('circle').classed('node-selected', true);
+        
+        selectedNodePath = d.data._path;
+        updateSidebarForNode(d.data);
+      });
+
+      zoomBehavior = d3.zoom()
+        .scaleExtent([0.5, 2.2])
+        .on('zoom', (event) => {
+          currentZoomTransform = event.transform;
+          g.attr('transform', event.transform);
+        });
+
+      svg.call(zoomBehavior);
+
+      function calculateFitTransform() {
+        const bounds = g.node().getBBox();
+        if (!bounds.width || !bounds.height) return null;
+        const scale = Math.max(
+          0.5,
+          Math.min(1.3, 0.85 / Math.max(bounds.width / width, bounds.height / height))
+        );
+        const midX = bounds.x + bounds.width / 2;
+        const midY = bounds.y + bounds.height / 2;
+        return d3.zoomIdentity
+          .translate(width / 2 - scale * midX, height / 2 - scale * midY)
+          .scale(scale);
+      }
+
+      const fitTransform = calculateFitTransform();
+      if (fitTransform) {
+        lastFitTransform = fitTransform;
+      }
+      if (recenterBtn) {
+        recenterBtn.disabled = !fitTransform;
+      }
+
+      if (currentZoomTransform) {
+        svg.call(zoomBehavior.transform, currentZoomTransform);
+      } else if (fitTransform) {
+        svg.call(zoomBehavior.transform, fitTransform);
+        currentZoomTransform = fitTransform;
+      }
+    }
+
+    // Sidebar button event listeners
+    generateExamplesBtn.addEventListener('click', async () => {
+      if (!selectedNodePath) return;
+      const node = getNodeByPath(selectedNodePath);
+      if (!node) return;
+      
+      const exampleCount = parseInt(exampleCountInput.value) || 2;
+      
+      generateExamplesBtn.disabled = true;
+      generateExamplesBtn.textContent = '⚡ Generating...';
+      
+      try {
+        const examples = await generateExamplesWithGroq(node.name, exampleCount);
+        const sanitizedExamples = (Array.isArray(examples) ? examples : [])
+          .map(normalizeLabel)
+          .filter(example => example.length > 0);
+
+        if (!sanitizedExamples.length) {
+          throw new Error('No examples generated');
+        }
+
+        // Add examples as child nodes
+        node.children = node.children || [];
+        sanitizedExamples.forEach(example => {
+          node.children.push({ name: example, children: [] });
+        });
+        
+        refreshParentOptions();
+        renderMindmap(mindmapData);
+        clearSelection();
+        displayExamples(
+          sanitizedExamples,
+          `Added ${sanitizedExamples.length} example ${sanitizedExamples.length === 1 ? 'node' : 'nodes'} to the mindmap.`
+        );
+      } catch (error) {
+        console.error('Error generating examples:', error);
+        sidebarExamples.innerHTML = '<p class="sidebar-muted">Error generating examples. Please try again.</p>';
+      } finally {
+        generateExamplesBtn.disabled = false;
+        generateExamplesBtn.textContent = '⚡ Generate examples';
+      }
+    });
+
+    customNodeBtn.addEventListener('click', async () => {
+      if (!selectedNodePath) return;
+      const node = getNodeByPath(selectedNodePath);
+      if (!node) return;
+      
+      const question = prompt('What would you like to explore about this topic?');
+      if (!question || !question.trim()) return;
+      
+      customNodeBtn.disabled = true;
+      customNodeBtn.textContent = '✏️ Thinking...';
+      
+      try {
+        const strandPath = getStrandForPath(selectedNodePath);
+        const generatedNodes = await askGroqQuestion(question, mindmapData, node.name, strandPath);
+        const cleanedNodes = (Array.isArray(generatedNodes) ? generatedNodes : [])
+          .map(entry => {
+            if (!entry) return null;
+            if (typeof entry === 'string') {
+              const text = normalizeLabel(entry);
+              return text ? { text } : null;
+            }
+            const text = normalizeLabel(entry.text || '');
+            const note = entry.note ? normalizeLabel(entry.note) : '';
+            if (!text) return null;
+            return note ? { text, note } : { text };
+          })
+          .filter(Boolean);
+
+        if (!cleanedNodes.length) {
+          throw new Error('No answer returned');
+        }
+
+        // Add responses as child nodes
+        node.children = node.children || [];
+        cleanedNodes.forEach(entry => {
+          node.children.push({ name: entry.text, children: [] });
+        });
+        
+        refreshParentOptions();
+        renderMindmap(mindmapData);
+        clearSelection();
+        const exampleText = cleanedNodes.map(entry => entry.note ? `${entry.text} — ${entry.note}` : entry.text);
+        displayExamples(
+          exampleText,
+          `Added ${cleanedNodes.length} custom ${cleanedNodes.length === 1 ? 'insight' : 'insights'} to the mindmap.`
+        );
+      } catch (error) {
+        console.error('Error asking question:', error);
+        sidebarExamples.innerHTML = '<p class="sidebar-muted">Error processing question. Please try again.</p>';
+      } finally {
+        customNodeBtn.disabled = false;
+        customNodeBtn.textContent = '✏️ Custom';
+      }
+    });
+
+    deleteNodeBtn.addEventListener('click', () => {
+      if (!selectedNodePath) return;
+      const pathParts = selectedNodePath.split('.');
+      if (pathParts.length < 2) return; // Can't delete root
+      
+      if (confirm('Are you sure you want to delete this node?')) {
+        const parentPath = pathParts.slice(0, -1).join('.');
+        const parent = getNodeByPath(parentPath);
+        if (parent && parent.children) {
+          const nodeIndex = parseInt(pathParts[pathParts.length - 1]);
+          parent.children.splice(nodeIndex, 1);
+          clearSelection();
+          refreshParentOptions();
+          renderMindmap(mindmapData);
+        }
+      }
+    });
+
+    if (recenterBtn) {
+      recenterBtn.addEventListener('click', () => {
+        if (!svgSelection || !zoomBehavior || !lastFitTransform) return;
+        svgSelection.transition().duration(450).call(zoomBehavior.transform, lastFitTransform);
+        currentZoomTransform = lastFitTransform;
+      });
+    }
+
+    // Groq API functions
+    async function generateExamplesWithGroq(topic, count = 2) {
+      const response = await fetch('/api/generate-examples', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ topic, count })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to generate examples');
+      }
+      
+      const result = await response.json();
+      if (!Array.isArray(result)) {
+        throw new Error('Unexpected response format');
+      }
+      return result;
+    }
+
+    async function askGroqQuestion(question, graphData, selectedNode, strandPath) {
+      const response = await fetch('/api/ask-question', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          question, 
+          graphData, 
+          selectedNode,
+          strandPath 
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to process question');
+      }
+      
+      const result = await response.json();
+      if (result && typeof result === 'object' && result.error) {
+        throw new Error(result.error);
+      }
+      if (result && Array.isArray(result.nodes)) {
+        return result.nodes;
+      }
+      if (Array.isArray(result)) {
+        return result;
+      }
+      if (typeof result === 'string') {
+        return [{ text: result }];
+      }
+      return [];
+    }
+
+    // Display examples in sidebar
+    function displayExamples(examples, headerText) {
+      const safeExamples = (examples || [])
+        .map(normalizeLabel)
+        .filter(example => example.length > 0);
+
+      sidebarExamples.innerHTML = '';
+      if (headerText) {
+        const headerEl = document.createElement('p');
+        headerEl.className = 'sidebar-muted';
+        headerEl.textContent = headerText;
+        sidebarExamples.appendChild(headerEl);
+      }
+
+      if (safeExamples.length > 0) {
+        safeExamples.forEach(example => {
+          const item = document.createElement('div');
+          item.className = 'example-item';
+          item.textContent = example;
+          sidebarExamples.appendChild(item);
+        });
+      } else {
+        const emptyState = document.createElement('p');
+        emptyState.className = 'sidebar-muted';
+        emptyState.textContent = 'No examples generated.';
+        sidebarExamples.appendChild(emptyState);
+      }
+    }
+
+    refreshParentOptions();
+    renderMindmap(mindmapData);
+  </script>
+</body>
+</html>

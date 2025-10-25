@@ -133,7 +133,7 @@ socket.on('recording_started', ({ session, group }) => {
     - Summary mode: `POST /api/transcribe-chunk`
       - Validates chunk, forwards to ElevenLabs STT.
       - Appends a transcript segment (per group) and trims history.
-      - Generates a cumulative summary via Anthropic and upserts to `summaries`.
+      - Generates a cumulative summary via OpenAI and upserts to `summaries`.
       - Emits to students (`transcription_and_summary`) and to admin (`admin_update`).
     - Mindmap mode: `POST /api/transcribe-mindmap-chunk`
       - Forwards to STT, then uses Groq to generate/expand a structured mindmap.
@@ -249,7 +249,7 @@ io.to(`${sessionCode}-${groupNumber}`).emit('checklist_state', checklistData);
 
 - Supabase: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (server), and browser `window.SUPABASE_URL` + `window.SUPABASE_ANON_KEY` (client).
 - STT: `ELEVENLABS_KEY` for ElevenLabs Speech‑to‑Text.
-- LLM: `ANTHROPIC_KEY` for summaries; `GROQ_API_KEY` for mindmap generation/expansion.
+- LLM: `OPENAI_API_KEY` (or `OPENAI_KEY`) for summaries and mindmap generation/expansion.
 
 ---
 
@@ -257,5 +257,4 @@ io.to(`${sessionCode}-${groupNumber}`).emit('checklist_state', checklistData);
 - Socket events currently rely on session codes, not JWT; REST APIs are owner‑validated via Supabase.
 - Audio ingestion validates headers (esp. WebM) and sizes; errors are surfaced to admin and students with retry/backoff.
 - Transcript storage is incremental per group with trimming to bound history size.
-- Mindmap API is disabled if `GROQ_API_KEY` is unset; UI reflects that via error messaging.
-
+- Mindmap API is disabled if `OPENAI_API_KEY` (or `OPENAI_KEY`) is unset; UI reflects that via error messaging.

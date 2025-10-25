@@ -30,7 +30,7 @@
   }
 
   function renderNavbar(opts) {
-    const options = Object.assign({ active: '', showModes: true }, opts || {});
+    const options = Object.assign({ active: '', showModes: true, showSignOut: true }, opts || {});
     const container = document.getElementById('app-navbar');
     if (!container) return;
     ensureBrandFont();
@@ -68,11 +68,12 @@
             </div>
             <div class="flex items-center gap-3">
               ${modesHtml}
+              ${options.showSignOut ? `
               <button id="adminSignOutBtn" class="bg-white hover:bg-slate-50 text-black px-3 sm:px-4 py-2 rounded-lg transition-colors flex items-center text-sm border border-slate-200 shadow-sm">
                 <i data-lucide="log-out" class="w-4 h-4 mr-2"></i>
                 <span class="hidden sm:inline">Sign out</span>
                 <span class="sm:hidden">Exit</span>
-              </button>
+              </button>` : ''}
             </div>
           </div>
         </div>

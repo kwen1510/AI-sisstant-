@@ -1,5 +1,6 @@
 (() => {
-  const adminDomain = (window.ADMIN_DOMAIN || 'ri.edu.sg').toLowerCase();
+  const allowedDomains = (window.ADMIN_ALLOWED_DOMAINS || ['ri.edu.sg', 'ufinity.com']).map(d => String(d || '').trim().toLowerCase()).filter(Boolean);
+  const defaultDomainLabel = allowedDomains.join(', ');
 
   if (!window.SUPABASE_URL || !window.SUPABASE_ANON_KEY) {
     const e = document.getElementById('error');
@@ -23,6 +24,13 @@
   const cooldownSecDefault = 30;
   let cooldownTimer = null;
   let currentSession = null;
+
+  otpEl?.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      verifyBtn?.click();
+    }
+  });
 
   async function getSupabaseAccessToken() {
     if (currentSession?.access_token) {
@@ -68,7 +76,7 @@
 
   function isAllowed(email) {
     const v = String(email || '').trim().toLowerCase();
-    return v.endsWith(`@${adminDomain}`);
+    return allowedDomains.some(domain => v.endsWith(`@${domain}`));
   }
 
   function startCooldown(sec = cooldownSecDefault) {
@@ -140,7 +148,7 @@
     setStatus({ message: 'Sending code…' });
     const email = emailEl.value;
     if (!isAllowed(email)) {
-      setStatus({ err: `Only ${adminDomain} emails are allowed.` });
+      setStatus({ err: `Only ${defaultDomainLabel} emails are allowed.` });
       return;
     }
     try {
@@ -162,7 +170,7 @@
   resendBtn?.addEventListener('click', async () => {
     const email = emailEl.value || window.localStorage.getItem('otp_email');
     if (!isAllowed(email)) {
-      setStatus({ err: `Only ${adminDomain} emails are allowed.` });
+      setStatus({ err: `Only ${defaultDomainLabel} emails are allowed.` });
       return;
     }
     setStatus({ message: 'Resending code…' });
@@ -185,7 +193,7 @@
     const email = emailEl.value || window.localStorage.getItem('otp_email');
     const token = String(otpEl.value || '').trim();
     if (!isAllowed(email)) {
-      setStatus({ err: `Only ${adminDomain} emails are allowed.` });
+      setStatus({ err: `Only ${defaultDomainLabel} emails are allowed.` });
       return;
     }
     if (!token) {
@@ -225,7 +233,7 @@
     // If already signed in and allowed, go to admin or requested page
     const { data: { session } } = await supabase.auth.getSession();
     const email = session?.user?.email?.toLowerCase() || '';
-    if (session && email.endsWith(`@${adminDomain}`)) {
+    if (session && allowedDomains.some(domain => email.endsWith(`@${domain}`))) {
       window.location.replace(redirectTo);
     }
   })();
