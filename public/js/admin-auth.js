@@ -1,5 +1,20 @@
 (() => {
-  const allowedDomains = (window.ADMIN_ALLOWED_DOMAINS || ['ri.edu.sg', 'ufinity.com']).map(d => String(d || '').trim().toLowerCase()).filter(Boolean);
+  const normalizeDomainList = (input) => {
+    if (Array.isArray(input)) return input;
+    if (typeof input === 'string' && input.trim()) return [input];
+    return [];
+  };
+
+  const allowedDomains = Array.from(new Set(
+    [
+      ...normalizeDomainList(window.ADMIN_ALLOWED_DOMAINS),
+      window.ADMIN_DOMAIN,
+      'ri.edu.sg',
+      'schools.gov.sg',
+      'ufinity.com'
+    ].map(d => String(d || '').trim().toLowerCase()).filter(Boolean)
+  ));
+
   const defaultDomainLabel = allowedDomains.join(', ');
 
   if (!window.SUPABASE_URL || !window.SUPABASE_ANON_KEY) {
@@ -119,6 +134,27 @@
 
   const urlParams = new URLSearchParams(window.location.search);
   const redirectTo = urlParams.get('redirect') || '/admin';
+  const firstLoginRedirect = window.ADMIN_FIRST_LOGIN_REDIRECT || null;
+  const emailRedirectTarget = window.ADMIN_EMAIL_REDIRECT_TO || firstLoginRedirect || redirectTo;
+
+  const toAbsoluteUrl = (value) => {
+    try {
+      return new URL(value, window.location.origin).href;
+    } catch {
+      return new URL('/admin', window.location.origin).href;
+    }
+  };
+
+  const emailRedirectTo = toAbsoluteUrl(emailRedirectTarget);
+
+  function resolvePostSignInDestination(session) {
+    const user = session?.user;
+    if (!user) return redirectTo;
+    const createdAt = user.created_at;
+    const lastSignInAt = user.last_sign_in_at;
+    const isFirstLogin = Boolean(firstLoginRedirect && (!lastSignInAt || (createdAt && createdAt === lastSignInAt)));
+    return isFirstLogin ? firstLoginRedirect : redirectTo;
+  }
 
   async function recordLogin(session) {
     try {
@@ -139,8 +175,8 @@
     refreshSessionUI();
     if (event === 'SIGNED_IN') {
       await recordLogin(session);
-      // Redirect to requested page after sign-in
-      window.location.replace(redirectTo);
+      const destination = resolvePostSignInDestination(session);
+      window.location.replace(destination);
     }
   });
 
@@ -154,7 +190,10 @@
     try {
       const { error: err } = await supabase.auth.signInWithOtp({
         email,
-        options: { shouldCreateUser: true }
+        options: {
+          shouldCreateUser: true,
+          emailRedirectTo
+        }
       });
       if (err) throw err;
       setStatus({ success: 'OTP sent. Check your inbox.' });
@@ -177,7 +216,10 @@
     try {
       const { error: err } = await supabase.auth.signInWithOtp({
         email,
-        options: { shouldCreateUser: true }
+        options: {
+          shouldCreateUser: true,
+          emailRedirectTo
+        }
       });
       if (err) throw err;
       setStatus({ success: 'OTP resent. Check your inbox.' });
@@ -234,7 +276,8 @@
     const { data: { session } } = await supabase.auth.getSession();
     const email = session?.user?.email?.toLowerCase() || '';
     if (session && allowedDomains.some(domain => email.endsWith(`@${domain}`))) {
-      window.location.replace(redirectTo);
+      const destination = resolvePostSignInDestination(session);
+      window.location.replace(destination);
     }
   })();
 
@@ -244,4 +287,13 @@
     const err = hash.get('error_description') || hash.get('error');
     if (err) setStatus({ err });
   } catch {}
+
+  if (window.__ENABLE_ADMIN_AUTH_TESTING__) {
+    window.__ADMIN_AUTH_TESTING__ = {
+      allowedDomains,
+      isAllowed,
+      emailRedirectTo,
+      resolvePostSignInDestination
+    };
+  }
 })();

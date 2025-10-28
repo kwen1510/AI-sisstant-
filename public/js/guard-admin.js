@@ -1,6 +1,25 @@
 (() => {
   // Redirect unauthenticated users from /admin to /login.html
-  const allowedDomain = (window.ADMIN_DOMAIN || 'ri.edu.sg').toLowerCase();
+  const normalizeDomainList = (input) => {
+    if (Array.isArray(input)) return input;
+    if (typeof input === 'string' && input.trim()) return [input];
+    return [];
+  };
+
+  const allowedDomains = Array.from(new Set(
+    [
+      ...normalizeDomainList(window.ADMIN_ALLOWED_DOMAINS),
+      window.ADMIN_DOMAIN,
+      'ri.edu.sg',
+      'schools.gov.sg',
+      'ufinity.com'
+    ].map(d => String(d || '').trim().toLowerCase()).filter(Boolean)
+  ));
+
+  const isAllowed = (email = '') => {
+    const value = String(email || '').trim().toLowerCase();
+    return allowedDomains.some(domain => value.endsWith(`@${domain}`));
+  };
 
   function toLogin() {
     const redirect = encodeURIComponent(window.location.pathname + window.location.search + window.location.hash);
@@ -74,8 +93,8 @@
   (async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const email = session?.user?.email?.toLowerCase() || '';
-      const ok = Boolean(session && email.endsWith(`@${allowedDomain}`));
+      const email = session?.user?.email || '';
+      const ok = Boolean(session && isAllowed(email));
       if (!ok) return toLogin();
       currentSession = session;
       // Expose user for page scripts that might need it

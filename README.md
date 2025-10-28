@@ -12,8 +12,8 @@ This document summarizes the authentication model, realtime (Socket.IO) + keep�
 
 ## Auth Logic
 
-- Client‑side (Supabase, OTP)
-  - `public/login.html` + `public/js/admin-auth.js` implement email OTP sign‑in via Supabase. Sign‑in is restricted by domain (`window.ADMIN_DOMAIN`, e.g. `ri.edu.sg`).
+- Client-side (Supabase, OTP)
+  - `public/login.html` + `public/js/admin-auth.js` implement email OTP sign-in via Supabase. Sign-in is restricted by configured domains (`window.ADMIN_ALLOWED_DOMAINS` / `window.ADMIN_DOMAIN`, e.g. `ri.edu.sg`, `schools.gov.sg`).
   - Admin pages (`admin.html`, `checkbox.html`, `mindmap.html`, `prompts.html`, `data.html`) load `public/js/guard-admin.js`, which:
     - Ensures a Supabase session exists and the email domain is allowed.
     - Wraps `window.fetch` to automatically attach `Authorization: Bearer <supabase_jwt>` to any "/api/..." requests.

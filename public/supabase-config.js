@@ -6,5 +6,7 @@ window.SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXB
 
 // Restrict client-side to admins only by domain (UX guard).
 // Supabase should also be configured to allow only this domain for signups.
-window.ADMIN_DOMAIN = 'ri.edu.sg';
-
+window.ADMIN_ALLOWED_DOMAINS = ['ri.edu.sg', 'schools.gov.sg', 'ufinity.com'];
+window.ADMIN_DOMAIN = window.ADMIN_ALLOWED_DOMAINS[0];
+window.ADMIN_FIRST_LOGIN_REDIRECT = 'https://ai-ttention.onrender.com/dashboard';
+window.ADMIN_EMAIL_REDIRECT_TO = window.ADMIN_FIRST_LOGIN_REDIRECT;
